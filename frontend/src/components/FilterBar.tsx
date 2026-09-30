@@ -88,7 +88,12 @@ export function FilterBar({ meta, filters, preset, onChange, onRefresh, refreshi
       {showStore && (
         <div className="filter-field">
           Store
-          <StoreSearch stores={meta.stores} value={filters.store} onChange={(store) => onChange({ store }, preset)} />
+          <StoreSearch
+            stores={meta.stores}
+            value={filters.store}
+            onChange={(store) => onChange({ store }, preset)}
+            allLabel={meta.all_stores ? "All stores" : `All my stores (${meta.stores.length})`}
+          />
         </div>
       )}
       <div className="spacer" />
@@ -114,5 +119,7 @@ export function useFilterState(meta: Meta | null) {
     setPreset((cur) => ("store" in patch ? cur : p));
   };
   const invalidRange = !!filters && filters.start > filters.end;
-  return { filters, preset, onChange, invalidRange };
+  // no dates to query: the tables are empty (All / Latest day) or a date is unset
+  const noDates = !!filters && (!filters.start || !filters.end);
+  return { filters, preset, onChange, invalidRange, noDates };
 }

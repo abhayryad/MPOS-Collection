@@ -4,10 +4,11 @@ interface Props {
   stores: string[];
   value: string; // "" = all stores
   onChange: (store: string) => void;
+  allLabel?: string; // label of the empty choice, default "All stores"
 }
 
 /** Type-to-search store picker. Enter/click picks a match; Esc or blur restores the current store. */
-export function StoreSearch({ stores, value, onChange }: Props) {
+export function StoreSearch({ stores, value, onChange, allLabel = "All stores" }: Props) {
   const [query, setQuery] = useState(value);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
@@ -44,7 +45,7 @@ export function StoreSearch({ stores, value, onChange }: Props) {
         aria-expanded={open}
         aria-controls={listId}
         aria-activedescendant={open ? `${listId}-${active}` : undefined}
-        placeholder="All stores"
+        placeholder={allLabel}
         value={query}
         onFocus={(e) => {
           e.target.select();
@@ -87,7 +88,7 @@ export function StoreSearch({ stores, value, onChange }: Props) {
               onMouseEnter={() => setActive(i)}
               onClick={() => pick(s)}
             >
-              {s || "All stores"}
+              {s || allLabel}
               {s === value && <span aria-hidden="true">✓</span>}
             </li>
           ))}

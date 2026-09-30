@@ -10,14 +10,14 @@ import { SlipsTable } from "../components/SlipsTable";
 import { StatTiles } from "../components/StatTiles";
 
 export function SalePostingDownload({ meta }: { meta: AsyncState<Meta> }) {
-  const { filters, preset, onChange, invalidRange } = useFilterState(meta.data);
+  const { filters, preset, onChange, invalidRange, noDates } = useFilterState(meta.data);
   const [preview, setPreview] = useState<SlipRef | null>(null);
 
 
   const dash = useAsync(
     (signal) => api.data(filters!, signal),
     [filters?.start, filters?.end, filters?.store],
-    !!filters && !invalidRange,
+    !!filters && !invalidRange && !noDates,
   );
   const data = dash.data;
 
@@ -51,8 +51,12 @@ export function SalePostingDownload({ meta }: { meta: AsyncState<Meta> }) {
   };
   const error = meta.error
     ? `Could not reach the database: ${meta.error}`
-    : invalidRange
-      ? "From date is after To date"
+    : noDates
+      ? meta.data?.max_date
+        ? "Pick a date or range"
+        : "No sales data in the database yet"
+      : invalidRange
+        ? "From date is after To date"
       : dash.error
         ? `Could not load data: ${dash.error}`
         : null;
@@ -63,7 +67,9 @@ export function SalePostingDownload({ meta }: { meta: AsyncState<Meta> }) {
         <h1>Sale Posting Download</h1>
         <div className="sub">
           {meta.data
-            ? `${meta.data.database} on ${meta.data.server} · data ${meta.data.min_date} to ${meta.data.max_date}`
+            ? `${meta.data.database} on ${meta.data.server} · ${
+                meta.data.max_date ? `data ${meta.data.min_date} to ${meta.data.max_date}` : "no data yet"
+              }`
             : "Connecting…"}
         </div>
       </header>

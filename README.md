@@ -10,6 +10,30 @@ Internal web app over the **datav2** database on **server 28** (SQL Server).
 
 Slips and reports are built from the database **on every request**; nothing is stored.
 
+## Login and users
+
+Everyone logs in. Site users are **not** Snowflake users – they are rows in
+`V2RETAIL.BRONZE.MPOS_USERS`; every login, failed login, logout, password change and admin
+change is written to `V2RETAIL.BRONZE.MPOS_AUTH_HISTORY` (both created on first use from
+`sql/snowflake/auth_tables.sql`). The site reaches Snowflake with the `SNOWFLAKE_*` settings in `.env` – key-pair login
+(`SNOWFLAKE_PRIVATE_KEY_PATH`, plus `SNOWFLAKE_PRIVATE_KEY_PASSPHRASE` if the key is encrypted)
+or, failing that, `SNOWFLAKE_PASSWORD`.
+
+- **admin** – built-in account; its password is `MPOS_ADMIN_PASSWORD` in `.env` (whoever knows it is
+  admin). Sees every tab plus **Admin → User Management**: add users, edit name and roles,
+  reset passwords, activate / deactivate, and the **Activity** log. Works even if Snowflake is down.
+- **Roles** give tabs: `SALE_POSTING` → Sale Posting Download, `REPORTS` → Reports
+  (defined in `backend/mpos/auth/roles.py` and `frontend/src/App.tsx`).
+- **Location** limits which stores a user sees: `HO` = all stores, otherwise one or more store
+  codes picked from the active stores in Snowflake `V2RETAIL.GOLD.STORE_PLANT_MASTER`
+  (`ST_TYP = 'STORE'`, `ST_STAT = 'ACT'`). Enforced on the server for the dashboard, slips, ZIP,
+  report preview and Excel (`backend/mpos/auth/locations.py`); admin is always `HO`.
+- New users and password resets start with the default password (`MPOS_DEFAULT_PASSWORD` in `.env`).
+  Asking the user to change it at first login is optional (a checkbox, off by default).
+- 5 failed logins within 15 minutes lock that username for 15 minutes. Sessions last 8 hours.
+- Passwords are stored only as scrypt hashes. If Snowflake is unreachable, history events are
+  kept in `output/auth_events_fallback.jsonl` instead of being lost.
+
 ## Setup
 
 Requirements: Python 3.10+, Node 20+, *ODBC Driver 18 for SQL Server*, network access to 192.168.151.28.
@@ -61,16 +85,18 @@ backend/
       service.py           load source rows, build every slip, today's-slip rule
     reports/
       electronic_journal.py  Electronic General query, preview paging, Excel export
-    api/                   HTTP endpoints: dashboard.py, slips.py, reports.py
+    auth/                  login: passwords.py, sessions.py, roles.py, store.py (Snowflake), deps.py
+    api/                   HTTP endpoints: auth, admin, dashboard, slips, reports
     main.py                FastAPI app; serves the built frontend
     cli.py                 command-line tools (python -m mpos ...)
   tests/                   exact-output tests for slip formats and the Excel layout
   requirements.txt
 sql/
-  views/VW_ELECTRONIC_JOURNAL.sql   view behind the Electronic General report
+  views/VW_ELECTRONIC_JOURNAL.sql   view behind the Electronic General report (SQL Server 28)
+  snowflake/auth_tables.sql         users + authentication history tables (Snowflake)
 frontend/                  React + TypeScript + Vite
   src/
-    pages/                 SalePostingDownload.tsx, Reports.tsx
+    pages/                 SalePostingDownload.tsx, Reports.tsx, Admin.tsx, Login.tsx
     components/            charts, filters, slip table and preview, report preview
     lib/                   api.ts (typed API client), format.ts, hooks.ts
 output/                    files written by the command line (git-ignored)

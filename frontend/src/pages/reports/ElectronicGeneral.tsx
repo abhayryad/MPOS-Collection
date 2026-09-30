@@ -1,24 +1,28 @@
-import { api, download, type Meta } from "../lib/api";
-import { useAsync, type AsyncState } from "../lib/hooks";
-import { fmtQty } from "../lib/format";
-import { FilterBar, useFilterState } from "../components/FilterBar";
-import { JournalPreview } from "../components/JournalPreview";
+import { api, download, type Meta } from "../../lib/api";
+import { useAsync, type AsyncState } from "../../lib/hooks";
+import { fmtQty } from "../../lib/format";
+import { FilterBar, useFilterState } from "../../components/FilterBar";
+import { JournalPreview } from "../../components/JournalPreview";
 
-/** Electronic General report: item + payment lines for all stores, downloaded as Excel. */
-export function Reports({ meta }: { meta: AsyncState<Meta> }) {
-  const { filters, preset, onChange, invalidRange } = useFilterState(meta.data);
+/** Reports > Electronic General: item + payment lines per store, previewed and downloaded as Excel. */
+export function ElectronicGeneral({ meta }: { meta: AsyncState<Meta> }) {
+  const { filters, preset, onChange, invalidRange, noDates } = useFilterState(meta.data);
   const summary = useAsync(
     (signal) => api.journalSummary(filters!, signal),
     [filters?.start, filters?.end, filters?.store],
-    !!filters && !invalidRange,
+    !!filters && !invalidRange && !noDates,
   );
   const s = summary.data;
   const period = filters ? (filters.start === filters.end ? filters.start : `${filters.start} to ${filters.end}`) : "";
 
   const error = meta.error
     ? `Could not reach the database: ${meta.error}`
-    : invalidRange
-      ? "From date is after To date"
+    : noDates
+      ? meta.data?.max_date
+        ? "Pick a date or range"
+        : "No sales data in the database yet"
+      : invalidRange
+        ? "From date is after To date"
       : summary.error
         ? `Could not load report: ${summary.error}`
         : null;
@@ -26,7 +30,8 @@ export function Reports({ meta }: { meta: AsyncState<Meta> }) {
   return (
     <div className={summary.loading ? "loading" : undefined}>
       <header className="page-head">
-        <h1>Reports</h1>
+        <div className="crumb">Reports ›</div>
+        <h1>Electronic General</h1>
         <div className="sub">{meta.data ? `${meta.data.database} on ${meta.data.server}` : "Connecting…"}</div>
       </header>
 
@@ -49,7 +54,7 @@ export function Reports({ meta }: { meta: AsyncState<Meta> }) {
       <section className="card report-card">
         <div className="card-head">
           <div>
-            <h2>Electronic General</h2>
+            <h2>Electronic journal</h2>
             <div className="hint">
               Every item line and payment line{filters?.store ? ` for ${filters.store}` : " for all stores"} · ITEM_WISE_TRANSACTIONS + PAYMENT_WISE_TRANSACTIONS,
               product name from DIM_PRODUCT
@@ -58,7 +63,7 @@ export function Reports({ meta }: { meta: AsyncState<Meta> }) {
           <button
             type="button"
             className="primary"
-            disabled={!filters || invalidRange || !s?.lines}
+            disabled={!filters || invalidRange || noDates || !s?.lines}
             onClick={() => filters && download(api.journalXlsxUrl(filters))}
           >
             ↓ Download Excel
@@ -83,7 +88,7 @@ export function Reports({ meta }: { meta: AsyncState<Meta> }) {
           </div>
         )}
         {s && s.lines === 0 && <div className="empty">No transactions in this date range</div>}
-        {s && filters && !invalidRange && <JournalPreview filters={filters} total={s.lines} />}
+        {s && filters && !invalidRange && !noDates && <JournalPreview filters={filters} total={s.lines} />}
       </section>
     </div>
   );

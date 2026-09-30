@@ -3,23 +3,29 @@ Today's slips can be previewed but not downloaded (see slips.service.downloadabl
 import io
 import zipfile
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 
+from ..auth.deps import require
+from ..auth.locations import stores_for
+from ..auth.roles import SALE_POSTING
+from ..auth.store import User
 from ..slips.service import KINDS, TODAY_BLOCKED, build_all, downloadable, load
 from .common import check_date
 
-router = APIRouter(prefix="/api")
+sale_user = require(SALE_POSTING)
+router = APIRouter(prefix="/api", dependencies=[Depends(sale_user)])
 
 
 @router.get("/slip/{kind}/{store}/{day}")
-def slip(kind: str, store: str, day: str, download: bool = False):
+def slip(kind: str, store: str, day: str, download: bool = False, user: User = Depends(sale_user)):
     kind = kind.upper()
     if kind not in KINDS:
         raise HTTPException(404, "Unknown slip type")
     day = check_date(day, "date")
     if download and not downloadable(day):
         raise HTTPException(403, TODAY_BLOCKED)
+    stores_for(user, store)  # 403 unless this store is in the user's location
     text = build_all(*load(day, day, store))[kind].get((store, day))
     if text is None:
         raise HTTPException(404, f"No {KINDS[kind].lower()} slip for {store} on {day}")
@@ -28,10 +34,11 @@ def slip(kind: str, store: str, day: str, download: bool = False):
 
 
 @router.get("/slips.zip")
-def slips_zip(start: str, end: str, store: str = "", kinds: str = Query("MSRC")):
+def slips_zip(start: str, end: str, store: str = "", kinds: str = Query("MSRC"),
+              user: User = Depends(sale_user)):
     start, end = check_date(start, "start"), check_date(end, "end")
     wanted = [k for k in kinds.upper() if k in KINDS]
-    slips = build_all(*load(start, end, store or None))
+    slips = build_all(*load(start, end, stores_for(user, store)))
     buf = io.BytesIO()
     count = skipped = 0
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:

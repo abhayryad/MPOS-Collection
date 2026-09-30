@@ -58,14 +58,19 @@ def _source(conn):
     return f"({body.strip().rstrip(';')}) j"
 
 
-def _where(start, end, store):
-    """Date range, plus one store when given ("" / None = all stores)."""
-    if store:
-        return "[Transaction date] BETWEEN ? AND ? AND LTRIM(RTRIM([Store])) = ?", [start, end, store]
-    return "[Transaction date] BETWEEN ? AND ?", [start, end]
+def _where(start, end, stores):
+    """Date range, plus stores (a code, a list of codes, or None = all stores)."""
+    if isinstance(stores, str):
+        stores = [stores]
+    if stores is None:
+        return "[Transaction date] BETWEEN ? AND ?", [start, end]
+    stores = list(stores) or [""]  # no stores -> no rows
+    marks = ", ".join("?" * len(stores))
+    return f"[Transaction date] BETWEEN ? AND ? AND LTRIM(RTRIM([Store])) IN ({marks})", [start, end] + stores
 
 
 def load(conn, start, end, store=None):
+    """store: a code, a list of codes, or None = all stores."""
     where, params = _where(start, end, store)
     sql = f"SELECT * FROM {_source(conn)} WHERE {where} ORDER BY {ORDER}"
     return read_sql(sql, conn, params)

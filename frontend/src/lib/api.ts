@@ -9,6 +9,7 @@ export interface Meta {
   min_date: string | null;
   max_date: string | null;
   mop_codes: string[];
+  all_stores: boolean; // false = the store list is limited to the user's location
   kinds: Record<Kind, string>;
 }
 
@@ -61,8 +62,71 @@ export interface JournalPage {
   size: number;
 }
 
-async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
-  const r = await fetch(url, { signal });
+export interface User {
+  username: string;
+  full_name: string;
+  roles: string[];
+  locations: string[]; // ['HO'] = all stores, else store codes
+  is_admin: boolean;
+  is_active: boolean;
+  must_change_password: boolean;
+  created_at: string | null;
+  created_by: string | null;
+  updated_at: string | null;
+  updated_by: string | null;
+  last_login_at: string | null;
+}
+
+/** The logged-in user, plus the names of every assignable role. */
+export type Me = User & { role_names: Record<string, string> };
+
+export interface AuthEvent {
+  id: number;
+  time: string;
+  username: string | null;
+  actor: string | null;
+  event: string;
+  detail: string | null;
+  ip: string | null;
+  user_agent: string | null;
+}
+
+export interface StoreInfo {
+  code: string;
+  name: string;
+  zone: string;
+  region: string;
+  state: string;
+}
+
+export interface NewUser {
+  username: string;
+  full_name: string;
+  roles: string[];
+  locations: string[];
+  password: string;
+  must_change_password: boolean;
+}
+
+/** Fired when the server says the session is gone (expired, logged out, deactivated). */
+export const LOGGED_OUT_EVENT = "mpos:logged-out";
+
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+  ) {
+    super(message);
+  }
+}
+
+async function request<T>(method: string, url: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+  const r = await fetch(url, {
+    method,
+    signal,
+    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
   if (!r.ok) {
     let detail = r.statusText;
     try {
@@ -70,14 +134,38 @@ async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
     } catch {
       /* non-JSON error body */
     }
-    throw new Error(detail);
+    if (r.status === 401 && !url.startsWith("/api/auth/")) window.dispatchEvent(new Event(LOGGED_OUT_EVENT));
+    throw new ApiError(detail, r.status);
   }
   return r.json() as Promise<T>;
 }
 
+const getJson = <T,>(url: string, signal?: AbortSignal) => request<T>("GET", url, undefined, signal);
+
 const query = (f: Filters) => new URLSearchParams({ start: f.start, end: f.end, store: f.store }).toString();
 
 export const api = {
+  // session
+  me: (signal?: AbortSignal) => getJson<Me>("/api/auth/me", signal),
+  login: (username: string, password: string) => request<Me>("POST", "/api/auth/login", { username, password }),
+  logout: () => request<{ ok: boolean }>("POST", "/api/auth/logout"),
+  changePassword: (current_password: string, new_password: string) =>
+    request<Me>("POST", "/api/auth/change-password", { current_password, new_password }),
+
+  // admin
+  users: (signal?: AbortSignal) => getJson<User[]>("/api/admin/users", signal),
+  createUser: (u: NewUser) => request<User>("POST", "/api/admin/users", u),
+  updateUser: (username: string, change: Partial<Pick<User, "full_name" | "roles" | "locations" | "is_active">>) =>
+    request<User>("PATCH", `/api/admin/users/${encodeURIComponent(username)}`, change),
+  resetPassword: (username: string, password: string, must_change_password: boolean) =>
+    request<User>("POST", `/api/admin/users/${encodeURIComponent(username)}/reset-password`, {
+      password,
+      must_change_password,
+    }),
+  adminDefaults: (signal?: AbortSignal) => getJson<{ default_password: string }>("/api/admin/defaults", signal),
+  storeMaster: (signal?: AbortSignal) => getJson<StoreInfo[]>("/api/admin/stores", signal),
+  activity: (signal?: AbortSignal) => getJson<AuthEvent[]>("/api/admin/activity?limit=1000", signal),
+
   meta: (signal?: AbortSignal) => getJson<Meta>("/api/meta", signal),
   data: (f: Filters, signal?: AbortSignal) => getJson<DashboardData>(`/api/data?${query(f)}`, signal),
 
@@ -88,7 +176,8 @@ export const api = {
 
   async slipText(kind: Kind, store: string, date: string): Promise<string> {
     const r = await fetch(api.slipUrl(kind, store, date));
-    if (!r.ok) throw new Error((await r.json()).detail ?? r.statusText);
+    if (r.status === 401) window.dispatchEvent(new Event(LOGGED_OUT_EVENT));
+    if (!r.ok) throw new ApiError((await r.json()).detail ?? r.statusText, r.status);
     return r.text();
   },
 

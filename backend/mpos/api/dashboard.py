@@ -1,9 +1,13 @@
 """Sale Posting Download page: shared metadata and the dashboard (tiles, charts, slip list)."""
 from datetime import date
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
+from ..auth.deps import ready_user, require
+from ..auth.locations import allowed_stores, filter_stores, stores_for
+from ..auth.roles import SALE_POSTING
+from ..auth.store import User
 from ..config import settings
 from ..db import TABLES, connect
 from ..slips import cancel, mop
@@ -11,10 +15,11 @@ from ..slips.service import KINDS, build_all, downloadable, load
 from .common import check_date
 
 router = APIRouter(prefix="/api")
+sale_user = require(SALE_POSTING)
 
 
-@router.get("/meta")
-def meta():
+@router.get("/meta")  # any logged-in user; store list limited to their location
+def meta(user: User = Depends(ready_user)):
     with connect() as conn:
         cur = conn.cursor()
         union = " UNION ".join(
@@ -26,7 +31,8 @@ def meta():
     return {
         "server": settings.db_server,
         "database": settings.db_name,
-        "stores": [r[0] for r in rows if r[0]],
+        "stores": filter_stores(user, [r[0] for r in rows if r[0]]),
+        "all_stores": allowed_stores(user) is None,
         "min_date": str(min(r[1] for r in rows))[:10] if rows else None,
         "max_date": str(max(r[2] for r in rows))[:10] if rows else None,
         "mop_codes": codes,
@@ -35,9 +41,9 @@ def meta():
 
 
 @router.get("/data")
-def data(start: str, end: str, store: str = ""):
+def data(start: str, end: str, store: str = "", user: User = Depends(sale_user)):
     start, end = check_date(start, "start"), check_date(end, "end")
-    codes, pay, item, bill = load(start, end, store or None)
+    codes, pay, item, bill = load(start, end, stores_for(user, store))
     slips = build_all(codes, pay, item, bill)
 
     pay["CODE"] = pay["MOP_TYPE"].fillna("").str.strip().map(mop.mop_code)

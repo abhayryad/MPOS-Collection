@@ -19,15 +19,20 @@ def downloadable(day):
     return day < date.today().isoformat()
 
 
-def load(start=None, end=None, store=None):
-    """(mop codes, payment, item, bill) rows for a date range (None = all dates) and optional store."""
+def load(start=None, end=None, stores=None):
+    """(mop codes, payment, item, bill) rows for a date range (None = all dates) and stores
+    (a code, a list of codes, or None = every store)."""
+    if isinstance(stores, str):
+        stores = [stores]
     where, params = [], []
     if start and end:
         where.append("TRANSDATE BETWEEN ? AND ?")
         params += [start, end]
-    if store:
-        where.append("LTRIM(RTRIM(STORE)) = ?")
-        params.append(store)
+    if stores is not None:
+        if not stores:
+            stores = [""]  # no stores -> no rows
+        where.append(f"LTRIM(RTRIM(STORE)) IN ({', '.join('?' * len(stores))})")
+        params += list(stores)
     where = " AND ".join(where) or None
     with connect() as conn:
         codes = mop.all_mop_codes(conn)
