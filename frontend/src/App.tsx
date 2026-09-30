@@ -4,10 +4,12 @@ import { useAsync, useHashRoute, useTheme } from "./lib/hooks";
 import { Sidebar, type NavItem } from "./components/Sidebar";
 import { SalePostingDownload } from "./pages/SalePostingDownload";
 import { ElectronicGeneral } from "./pages/reports/ElectronicGeneral";
+import { SaleByHour } from "./pages/reports/SaleByHour";
+import { DailySalesSummary } from "./pages/reports/DailySalesSummary";
 import { Admin } from "./pages/Admin";
 import { ChangePassword, Login } from "./pages/Login";
 
-const ROUTES = ["/downloads", "/reports/electronic-general", "/admin"] as const;
+const ROUTES = ["/downloads", "/reports/electronic-general", "/reports/sale-by-hour", "/reports/daily-sales-summary", "/admin"] as const;
 type Route = (typeof ROUTES)[number];
 
 /** Tabs and the role that opens each (null = admin only). Mirrors backend/mpos/auth/roles.py.
@@ -19,7 +21,11 @@ const NAV: (NavItem<Route> & { role: string | null })[] = [
     label: "Reports",
     icon: "▦",
     role: "REPORTS",
-    children: [{ route: "/reports/electronic-general", label: "Electronic General" }],
+    children: [
+      { route: "/reports/electronic-general", label: "Electronic General" },
+      { route: "/reports/sale-by-hour", label: "Store Sale by Hour" },
+      { route: "/reports/daily-sales-summary", label: "Daily Sales Summary" },
+    ],
   },
   { route: "/admin", label: "Admin", icon: "⚙", role: null },
 ];
@@ -117,6 +123,8 @@ function Shell({ me, onLogout, onChangePassword }: { me: Me; onLogout: () => voi
           )}
           {route === "/downloads" && routes.includes(route) && <SalePostingDownload meta={meta} />}
           {route === "/reports/electronic-general" && routes.includes(route) && <ElectronicGeneral meta={meta} />}
+          {route === "/reports/sale-by-hour" && routes.includes(route) && <SaleByHour meta={meta} />}
+          {route === "/reports/daily-sales-summary" && routes.includes(route) && <DailySalesSummary />}
           {route === "/admin" && me.is_admin && <Admin me={me} />}
         </div>
       </main>

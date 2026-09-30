@@ -36,13 +36,24 @@ interface Props {
   refreshing: boolean;
   /** Hide the store picker for reports that always cover every store. */
   showStore?: boolean;
+  /** One store on one day: no "All" preset, no date range, no "All stores" choice. */
+  storeDay?: boolean;
 }
 
-export function FilterBar({ meta, filters, preset, onChange, onRefresh, refreshing, showStore = true }: Props) {
+export function FilterBar({
+  meta,
+  filters,
+  preset,
+  onChange,
+  onRefresh,
+  refreshing,
+  showStore = true,
+  storeDay = false,
+}: Props) {
   return (
     <div className="filters" role="group" aria-label="Filters">
       <div className="presets">
-        {PRESETS.map((p) => (
+        {PRESETS.filter((p) => !storeDay || p.id !== "all").map((p) => (
           <button
             key={p.id}
             type="button"
@@ -65,6 +76,30 @@ export function FilterBar({ meta, filters, preset, onChange, onRefresh, refreshi
           onChange={(e) => e.target.value && onChange({ start: e.target.value, end: e.target.value }, null)}
         />
       </label>
+      {!storeDay && <DateRange meta={meta} filters={filters} onChange={onChange} />}
+      {showStore && (
+        <div className="filter-field">
+          Store
+          <StoreSearch
+            stores={meta.stores}
+            value={filters.store}
+            onChange={(store) => onChange({ store }, preset)}
+            allLabel={storeDay ? null : meta.all_stores ? "All stores" : `All my stores (${meta.stores.length})`}
+          />
+        </div>
+      )}
+      <div className="spacer" />
+      <button type="button" onClick={onRefresh} disabled={refreshing} title="Reload from the database">
+        ↻ {refreshing ? "Loading…" : "Refresh"}
+      </button>
+    </div>
+  );
+}
+
+/** From / To date range. */
+function DateRange({ meta, filters, onChange }: Pick<Props, "meta" | "filters" | "onChange">) {
+  return (
+    <>
       <span className="or">or range</span>
       <label>
         From
@@ -85,33 +120,20 @@ export function FilterBar({ meta, filters, preset, onChange, onRefresh, refreshi
           onChange={(e) => e.target.value && onChange({ end: e.target.value }, null)}
         />
       </label>
-      {showStore && (
-        <div className="filter-field">
-          Store
-          <StoreSearch
-            stores={meta.stores}
-            value={filters.store}
-            onChange={(store) => onChange({ store }, preset)}
-            allLabel={meta.all_stores ? "All stores" : `All my stores (${meta.stores.length})`}
-          />
-        </div>
-      )}
-      <div className="spacer" />
-      <button type="button" onClick={onRefresh} disabled={refreshing} title="Reload from the database">
-        ↻ {refreshing ? "Loading…" : "Refresh"}
-      </button>
-    </div>
+    </>
   );
 }
 
-/** Filter state for a page: defaults to "All" once metadata loads; patches merge into the latest state. */
-export function useFilterState(meta: Meta | null) {
+/** Filter state for a page: starts on `initial` (default "All") once metadata loads; patches merge
+ *  into the latest state. A user with a single store starts on that store. */
+export function useFilterState(meta: Meta | null, initial: Preset = "all") {
   const [filters, setFilters] = useState<Filters | null>(null);
-  const [preset, setPreset] = useState<Preset | null>("all");
+  const [preset, setPreset] = useState<Preset | null>(initial);
 
   useEffect(() => {
-    if (meta && !filters) setFilters({ ...presetRange(meta, "all"), store: "" });
-  }, [meta, filters]);
+    if (meta && !filters)
+      setFilters({ ...presetRange(meta, initial), store: meta.stores.length === 1 ? meta.stores[0] : "" });
+  }, [meta, filters, initial]);
 
   const onChange = (patch: Partial<Filters>, p: Preset | null) => {
     setFilters((cur) => (cur ? { ...cur, ...patch } : cur));

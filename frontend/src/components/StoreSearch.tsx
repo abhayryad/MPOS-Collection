@@ -4,7 +4,7 @@ interface Props {
   stores: string[];
   value: string; // "" = all stores
   onChange: (store: string) => void;
-  allLabel?: string; // label of the empty choice, default "All stores"
+  allLabel?: string | null; // label of the empty choice, default "All stores"; null = a store must be picked
 }
 
 /** Type-to-search store picker. Enter/click picks a match; Esc or blur restores the current store. */
@@ -20,7 +20,7 @@ export function StoreSearch({ stores, value, onChange, allLabel = "All stores" }
   const q = query.trim().toUpperCase();
   const typing = q !== value.toUpperCase();
   const matches = typing && q ? stores.filter((s) => s.toUpperCase().includes(q)) : stores;
-  const options = ["", ...matches]; // "" = All stores
+  const options = allLabel === null ? matches : ["", ...matches]; // "" = All stores
 
   const pick = (store: string) => {
     onChange(store);
@@ -45,7 +45,7 @@ export function StoreSearch({ stores, value, onChange, allLabel = "All stores" }
         aria-expanded={open}
         aria-controls={listId}
         aria-activedescendant={open ? `${listId}-${active}` : undefined}
-        placeholder={allLabel}
+        placeholder={allLabel ?? "Pick a store"}
         value={query}
         onFocus={(e) => {
           e.target.select();
@@ -55,7 +55,7 @@ export function StoreSearch({ stores, value, onChange, allLabel = "All stores" }
         onChange={(e) => {
           setQuery(e.target.value);
           setOpen(true);
-          setActive(e.target.value.trim() ? 1 : 0); // highlight the first match while typing
+          setActive(e.target.value.trim() && allLabel !== null ? 1 : 0); // highlight the first match while typing
         }}
         onKeyDown={(e) => {
           if (e.key === "ArrowDown") {

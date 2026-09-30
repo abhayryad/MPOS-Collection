@@ -62,6 +62,18 @@ export interface JournalPage {
   size: number;
 }
 
+export interface SaleByHourRow {
+  hour: number;
+  transactions: number;
+  amount: number;
+  avg: number;
+}
+
+export interface SaleByHour {
+  rows: SaleByHourRow[];
+  totals: { transactions: number; amount: number };
+}
+
 export interface User {
   username: string;
   full_name: string;
@@ -143,6 +155,7 @@ async function request<T>(method: string, url: string, body?: unknown, signal?: 
 const getJson = <T,>(url: string, signal?: AbortSignal) => request<T>("GET", url, undefined, signal);
 
 const query = (f: Filters) => new URLSearchParams({ start: f.start, end: f.end, store: f.store }).toString();
+const storeDay = (date: string, store: string) => new URLSearchParams({ date, store }).toString();
 
 export const api = {
   // session
@@ -189,6 +202,9 @@ export const api = {
       signal,
     ),
   journalXlsxUrl: (f: Filters) => `/api/reports/electronic-journal.xlsx?${query(f)}`,
+  saleByHour: (date: string, store: string, signal?: AbortSignal) =>
+    getJson<SaleByHour>(`/api/reports/sale-by-hour?${storeDay(date, store)}`, signal),
+  saleByHourXlsxUrl: (date: string, store: string) => `/api/reports/sale-by-hour.xlsx?${storeDay(date, store)}`,
 
   zipUrl: (f: Filters, kinds: Kind[]) => `/api/slips.zip?${query(f)}&kinds=${kinds.join("")}`,
 };

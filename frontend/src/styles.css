@@ -368,3 +368,10 @@ pre.slip .ln::before {
 .nav-toggle { width: 100%; background: transparent; border: 0; font: inherit; text-align: left; cursor: pointer; }
 .nav-toggle:hover { background: var(--surface-2); }
 .nav-chevron { margin-left: auto; color: var(--muted); font-size: 11px; }
+.preview-scroll tfoot th, .preview-scroll tfoot td {
+  font-weight: 600;
+  border-top: 1px solid var(--axis);
+  background: var(--surface-2);
+  text-align: left;
+}
+.preview-scroll tfoot td.num { text-align: right; }
