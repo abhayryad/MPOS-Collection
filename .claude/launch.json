@@ -4,7 +4,7 @@
     {
       "name": "sale-posting",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "uvicorn", "app:app", "--port", "8028", "--reload"],
+      "runtimeArgs": ["-m", "uvicorn", "mpos.main:app", "--app-dir", "backend", "--port", "8028", "--reload"],
       "port": 8028
     },
     {

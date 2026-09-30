@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { api, type Filters } from "../api";
-import { useAsync } from "../hooks";
-import { fmtQty } from "../format";
+import { api, type Filters } from "../lib/api";
+import { useAsync } from "../lib/hooks";
+import { fmtQty } from "../lib/format";
 
 const PAGE_SIZE = 100;
 
@@ -15,12 +15,12 @@ export function JournalPreview({ filters, total }: Props) {
   const [page, setPage] = useState(1);
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  // new date range -> back to the first page
-  useEffect(() => setPage(1), [filters.start, filters.end]);
+  // new date range or store -> back to the first page
+  useEffect(() => setPage(1), [filters.start, filters.end, filters.store]);
 
   const data = useAsync(
     (signal) => api.journalRows(filters, page, PAGE_SIZE, signal),
-    [filters.start, filters.end, page],
+    [filters.start, filters.end, filters.store, page],
     total > 0,
   );
   const rows = data.data?.rows ?? [];

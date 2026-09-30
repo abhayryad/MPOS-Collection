@@ -17,7 +17,7 @@ export function Sidebar<R extends string>({ items, active, onToggleTheme }: Prop
         <span className="brand-mark" aria-hidden="true">
           V2
         </span>
-        <span className="brand-name">POS Collection</span>
+        <span className="brand-name">MPOS Collection</span>
       </div>
       <nav className="nav" aria-label="Sections">
         {items.map((item) => (

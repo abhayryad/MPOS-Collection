@@ -1,4 +1,10 @@
+# secrets
 .env
+
+# Python
 __pycache__/
-*_output.txt
+*.py[cod]
+
+# generated slip / report files (python -m mpos export-slips)
 output/
+*_output.txt

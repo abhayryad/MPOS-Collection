@@ -1,19 +1,21 @@
-"""Electronic General report: item + payment lines for all stores, as an Excel file
+"""Electronic General report: item + payment lines (all stores or one), as an Excel file
 laid out like the reference sheet (header row, frozen, filtered, dd/MM/yyyy dates).
 
-The query lives in sql/VW_ELECTRONIC_JOURNAL.sql. If dbo.VW_ELECTRONIC_JOURNAL exists
-it is used; otherwise the view's SELECT is run directly, so the report works either way.
+The query lives in sql/views/VW_ELECTRONIC_JOURNAL.sql. If dbo.VW_ELECTRONIC_JOURNAL exists
+with every report column it is used; otherwise the script's SELECT is run directly, so the
+report works before the view is created or updated.
 """
 import io
-import os
-import warnings
 
 import pandas as pd
 from openpyxl import Workbook
 from openpyxl.cell import WriteOnlyCell
 
+from ..config import settings
+from ..db import read_sql
+
 VIEW = "dbo.VW_ELECTRONIC_JOURNAL"
-SQL_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sql", "VW_ELECTRONIC_JOURNAL.sql")
+SQL_FILE = settings.sql_dir / "views" / "VW_ELECTRONIC_JOURNAL.sql"
 ORDER = "[Transaction date], [Transaction time], [Transaction number], SortLine, [Line number]"
 
 # Output columns in report order, with the column widths of the reference sheet.
@@ -52,24 +54,28 @@ def _source(conn):
     view_cols = {r[0] for r in cur.fetchall()}
     if view_cols and view_cols >= {name for name, _ in COLUMNS} | {"Store", "SortLine", "Line number"}:
         return VIEW
-    body = open(SQL_FILE, encoding="utf-8").read().split("-- BODY", 1)[1].split("\n", 1)[1]
+    body = SQL_FILE.read_text(encoding="utf-8").split("-- BODY", 1)[1].split("\n", 1)[1]
     return f"({body.strip().rstrip(';')}) j"
 
 
-def load(conn, start, end):
-    sql = f"SELECT * FROM {_source(conn)} WHERE [Transaction date] BETWEEN ? AND ? ORDER BY {ORDER}"
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", message="pandas only supports SQLAlchemy")
-        return pd.read_sql(sql, conn, params=[start, end])
+def _where(start, end, store):
+    """Date range, plus one store when given ("" / None = all stores)."""
+    if store:
+        return "[Transaction date] BETWEEN ? AND ? AND LTRIM(RTRIM([Store])) = ?", [start, end, store]
+    return "[Transaction date] BETWEEN ? AND ?", [start, end]
 
 
-def load_page(conn, start, end, offset, limit):
+def load(conn, start, end, store=None):
+    where, params = _where(start, end, store)
+    sql = f"SELECT * FROM {_source(conn)} WHERE {where} ORDER BY {ORDER}"
+    return read_sql(sql, conn, params)
+
+
+def load_page(conn, start, end, offset, limit, store=None):
     """One page of report rows in report order, for the on-screen preview."""
-    sql = (f"SELECT * FROM {_source(conn)} WHERE [Transaction date] BETWEEN ? AND ? "
-           f"ORDER BY {ORDER} OFFSET ? ROWS FETCH NEXT ? ROWS ONLY")
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", message="pandas only supports SQLAlchemy")
-        df = pd.read_sql(sql, conn, params=[start, end, int(offset), int(limit)])
+    where, params = _where(start, end, store)
+    sql = f"SELECT * FROM {_source(conn)} WHERE {where} ORDER BY {ORDER} OFFSET ? ROWS FETCH NEXT ? ROWS ONLY"
+    df = read_sql(sql, conn, params + [int(offset), int(limit)])
     names = [name for name, _ in COLUMNS]
     rows = []
     for row in df[names].itertuples(index=False, name=None):

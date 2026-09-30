@@ -1,5 +1,5 @@
-import type { DashboardData } from "../api";
-import { fmtMoney, fmtQty, fmtShort } from "../format";
+import type { DashboardData } from "../lib/api";
+import { fmtMoney, fmtQty, fmtShort } from "../lib/format";
 
 export function StatTiles({ data }: { data: DashboardData }) {
   const t = data.tiles;

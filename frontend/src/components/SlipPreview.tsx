@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, download, type Kind } from "../api";
+import { api, download, type Kind } from "../lib/api";
 
 export interface SlipRef {
   kind: Kind;

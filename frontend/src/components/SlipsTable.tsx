@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api, download, type Filters, type Kind, type Meta, type SlipRow } from "../api";
+import { api, download, type Filters, type Kind, type Meta, type SlipRow } from "../lib/api";
 
 interface Props {
   meta: Meta;

@@ -1,25 +1,10 @@
-"""Connect to the datav2 database on server 28 (SQL Server).
-
-The password is read from SQL28_PWD in the .env file next to this script
-(or from the environment). Never commit or share .env.
-
-    python db_v2.py            -> tests the connection
-    from db_v2 import connect  -> use in other scripts
-"""
-import os
+"""SQL Server access for datav2: connections and plain table reads."""
 import warnings
 
+import pandas as pd
 import pyodbc
-from dotenv import load_dotenv
 
-load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
-
-SERVER = "192.168.151.28"
-PORT = 1433
-DATABASE = "datav2"
-USER = "ssis_new"
-PASSWORD = os.environ.get("SQL28_PWD", "")  # loaded from .env
-DRIVER = "ODBC Driver 18 for SQL Server"
+from .config import settings
 
 # Source tables in datav2.dbo
 TABLES = {
@@ -29,22 +14,27 @@ TABLES = {
 }
 
 
-def connect(database=DATABASE):
-    password = PASSWORD or os.environ.get("SQL28_PWD", "")
-    if not password:
-        raise RuntimeError("Set PASSWORD in db_v2.py or the SQL28_PWD environment variable.")
+def connect(database=None):
+    if not settings.db_password:
+        raise RuntimeError("SQL28_PWD is not set - add it to the .env file in the project root.")
     conn_str = (
-        f"DRIVER={{{DRIVER}}};SERVER={SERVER},{PORT};DATABASE={database};"
-        f"UID={USER};PWD={password};Encrypt=yes;TrustServerCertificate=yes;"
+        f"DRIVER={{{settings.db_driver}}};SERVER={settings.db_server},{settings.db_port};"
+        f"DATABASE={database or settings.db_name};UID={settings.db_user};PWD={settings.db_password};"
+        "Encrypt=yes;TrustServerCertificate=yes;"
     )
     return pyodbc.connect(conn_str, timeout=15)
 
 
+def read_sql(sql, conn, params=()):
+    """pandas.read_sql on a pyodbc connection, without pandas' SQLAlchemy warning."""
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="pandas only supports SQLAlchemy")
+        return pd.read_sql(sql, conn, params=list(params) or None)
+
+
 def read_table(table, top=None, where=None, params=(), conn=None):
     """Read one of TABLES into a DataFrame, e.g.
-    read_table("BILL", top=100) or read_table("PAYMENT", where="STORE_CODE = ?", params=["S01"])."""
-    import pandas as pd
-
+    read_table("BILL", top=100) or read_table("PAYMENT", where="STORE = ?", params=["HD22"])."""
     name = TABLES.get(table.upper(), table)
     sql = f"SELECT {f'TOP {int(top)} ' if top else ''}* FROM dbo.[{name}]"
     if where:
@@ -52,30 +42,7 @@ def read_table(table, top=None, where=None, params=(), conn=None):
     own = conn is None
     conn = conn or connect()
     try:
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", message="pandas only supports SQLAlchemy")
-            return pd.read_sql(sql, conn, params=list(params) or None)
+        return read_sql(sql, conn, params)
     finally:
         if own:
             conn.close()
-
-
-def row_counts(conn):
-    cur = conn.cursor()
-    for key, name in TABLES.items():
-        cur.execute(
-            "SELECT SUM(rows) FROM sys.partitions WHERE object_id = OBJECT_ID(?) AND index_id IN (0, 1)",
-            f"dbo.{name}")
-        print(f"{key:<8} {name:<30} rows={cur.fetchone()[0]}")
-
-
-if __name__ == "__main__":
-    with connect() as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT @@SERVERNAME, DB_NAME(), SUSER_SNAME(), GETDATE()")
-        server, db, login, now = cur.fetchone()
-        print(f"Connected: server={server} db={db} login={login} time={now}\n")
-        row_counts(conn)
-        for key in TABLES:
-            df = read_table(key, top=5, conn=conn)
-            print(f"\n{key}: {len(df.columns)} columns\n{df.head().to_string()}")

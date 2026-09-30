@@ -1,6 +1,6 @@
 import { useState, type FocusEvent, type PointerEvent } from "react";
-import { useWidth } from "../hooks";
-import { dayLabel } from "../format";
+import { useWidth } from "../lib/hooks";
+import { dayLabel } from "../lib/format";
 
 export interface Series {
   key: string;

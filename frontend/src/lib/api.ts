@@ -93,13 +93,13 @@ export const api = {
   },
 
   journalSummary: (f: Filters, signal?: AbortSignal) =>
-    getJson<JournalSummary>(`/api/reports/electronic-journal/summary?start=${f.start}&end=${f.end}`, signal),
+    getJson<JournalSummary>(`/api/reports/electronic-journal/summary?${query(f)}`, signal),
   journalRows: (f: Filters, page: number, size: number, signal?: AbortSignal) =>
     getJson<JournalPage>(
-      `/api/reports/electronic-journal/rows?start=${f.start}&end=${f.end}&page=${page}&size=${size}`,
+      `/api/reports/electronic-journal/rows?${query(f)}&page=${page}&size=${size}`,
       signal,
     ),
-  journalXlsxUrl: (f: Filters) => `/api/reports/electronic-journal.xlsx?start=${f.start}&end=${f.end}`,
+  journalXlsxUrl: (f: Filters) => `/api/reports/electronic-journal.xlsx?${query(f)}`,
 
   zipUrl: (f: Filters, kinds: Kind[]) => `/api/slips.zip?${query(f)}&kinds=${kinds.join("")}`,
 };

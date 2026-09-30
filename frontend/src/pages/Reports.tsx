@@ -1,6 +1,6 @@
-import { api, download, type Meta } from "../api";
-import { useAsync, type AsyncState } from "../hooks";
-import { fmtQty } from "../format";
+import { api, download, type Meta } from "../lib/api";
+import { useAsync, type AsyncState } from "../lib/hooks";
+import { fmtQty } from "../lib/format";
 import { FilterBar, useFilterState } from "../components/FilterBar";
 import { JournalPreview } from "../components/JournalPreview";
 
@@ -9,7 +9,7 @@ export function Reports({ meta }: { meta: AsyncState<Meta> }) {
   const { filters, preset, onChange, invalidRange } = useFilterState(meta.data);
   const summary = useAsync(
     (signal) => api.journalSummary(filters!, signal),
-    [filters?.start, filters?.end],
+    [filters?.start, filters?.end, filters?.store],
     !!filters && !invalidRange,
   );
   const s = summary.data;
@@ -38,7 +38,6 @@ export function Reports({ meta }: { meta: AsyncState<Meta> }) {
           onChange={onChange}
           onRefresh={summary.reload}
           refreshing={summary.loading}
-          showStore={false}
         />
       )}
       {error && (
@@ -52,7 +51,7 @@ export function Reports({ meta }: { meta: AsyncState<Meta> }) {
           <div>
             <h2>Electronic General</h2>
             <div className="hint">
-              Every item line and payment line for all stores · ITEM_WISE_TRANSACTIONS + PAYMENT_WISE_TRANSACTIONS,
+              Every item line and payment line{filters?.store ? ` for ${filters.store}` : " for all stores"} · ITEM_WISE_TRANSACTIONS + PAYMENT_WISE_TRANSACTIONS,
               product name from DIM_PRODUCT
             </div>
           </div>

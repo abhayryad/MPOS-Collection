@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Filters, Meta } from "../api";
+import type { Filters, Meta } from "../lib/api";
 import { StoreSearch } from "./StoreSearch";
 
 export type Preset = "yesterday" | "latest" | "all";
