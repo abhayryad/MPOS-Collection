@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "sale-posting",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "uvicorn", "app:app", "--port", "8028", "--reload"],
+      "port": 8028
+    },
+    {
+      "name": "frontend-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "frontend", "run", "dev"],
+      "port": 5173
+    }
+  ]
+}
