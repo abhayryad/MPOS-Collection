@@ -38,7 +38,7 @@ class Settings:
     admin_username: str = "admin"
     admin_password: str = os.environ.get("MPOS_ADMIN_PASSWORD", "")
     secret_key: str = os.environ.get("MPOS_SECRET_KEY", "")  # signs session cookies
-    # Pre-filled temporary password for new users / resets; a user given it must change it at first login
+    # Pre-filled temporary password for new users / resets; admin chooses whether it must be changed at first login
     default_user_password: str = os.environ.get("MPOS_DEFAULT_PASSWORD", "")
     session_hours: int = int(os.environ.get("MPOS_SESSION_HOURS", "8"))
     max_failed_logins: int = 5          # per username ...
