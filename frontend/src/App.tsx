@@ -124,7 +124,7 @@ function Shell({ me, onLogout, onChangePassword }: { me: Me; onLogout: () => voi
           {route === "/downloads" && routes.includes(route) && <SalePostingDownload meta={meta} />}
           {route === "/reports/electronic-general" && routes.includes(route) && <ElectronicGeneral meta={meta} />}
           {route === "/reports/sale-by-hour" && routes.includes(route) && <SaleByHour meta={meta} />}
-          {route === "/reports/daily-sales-summary" && routes.includes(route) && <DailySalesSummary />}
+          {route === "/reports/daily-sales-summary" && routes.includes(route) && <DailySalesSummary meta={meta} />}
           {route === "/admin" && me.is_admin && <Admin me={me} />}
         </div>
       </main>

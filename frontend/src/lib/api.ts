@@ -74,6 +74,12 @@ export interface SaleByHour {
   totals: { transactions: number; amount: number };
 }
 
+export interface DailySalesSummary {
+  columns: { key: string; label: string }[];
+  rows: Record<string, string | number>[];
+  totals: Record<string, number>;
+}
+
 export interface User {
   username: string;
   full_name: string;
@@ -205,6 +211,11 @@ export const api = {
   saleByHour: (date: string, store: string, signal?: AbortSignal) =>
     getJson<SaleByHour>(`/api/reports/sale-by-hour?${storeDay(date, store)}`, signal),
   saleByHourXlsxUrl: (date: string, store: string) => `/api/reports/sale-by-hour.xlsx?${storeDay(date, store)}`,
+
+  dailySalesSummary: (date: string, store: string, signal?: AbortSignal) =>
+    getJson<DailySalesSummary>(`/api/reports/daily-sales-summary?${storeDay(date, store)}`, signal),
+  dailySalesSummaryXlsxUrl: (date: string, store: string) =>
+    `/api/reports/daily-sales-summary.xlsx?${storeDay(date, store)}`,
 
   zipUrl: (f: Filters, kinds: Kind[]) => `/api/slips.zip?${query(f)}&kinds=${kinds.join("")}`,
 };
