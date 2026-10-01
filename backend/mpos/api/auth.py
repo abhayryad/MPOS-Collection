@@ -68,7 +68,7 @@ def login(body: Login, request: Request, response: Response):
         store.record("LOGIN_FAILED", username, detail="wrong username or password", **who)
         raise HTTPException(401, BAD_LOGIN)
 
-    if not user.is_admin:
+    if not user.is_builtin:
         try:
             store.mark_login(username)
         except Exception:  # noqa: BLE001 - last-login time is informational only
@@ -97,7 +97,7 @@ def me(user: store.User = Depends(current_user)):
 
 @router.post("/change-password")
 def change_password(body: PasswordChange, request: Request, user: store.User = Depends(current_user)):
-    if user.is_admin:
+    if user.is_builtin:
         raise HTTPException(400, "The admin password is set in the server's .env file")
     _, pw_hash = store.get_user(user.username)
     if not passwords.verify_password(body.current_password, pw_hash):

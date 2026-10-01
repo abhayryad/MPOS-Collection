@@ -86,6 +86,7 @@ export interface User {
   roles: string[];
   locations: string[]; // ['HO'] = all stores, else store codes
   is_admin: boolean;
+  is_builtin: boolean; // the .env admin account
   is_active: boolean;
   must_change_password: boolean;
   created_at: string | null;
@@ -124,6 +125,7 @@ export interface NewUser {
   locations: string[];
   password: string;
   must_change_password: boolean;
+  is_admin: boolean;
 }
 
 /** Fired when the server says the session is gone (expired, logged out, deactivated). */
@@ -174,7 +176,7 @@ export const api = {
   // admin
   users: (signal?: AbortSignal) => getJson<User[]>("/api/admin/users", signal),
   createUser: (u: NewUser) => request<User>("POST", "/api/admin/users", u),
-  updateUser: (username: string, change: Partial<Pick<User, "full_name" | "roles" | "locations" | "is_active">>) =>
+  updateUser: (username: string, change: Partial<Pick<User, "full_name" | "roles" | "locations" | "is_active" | "is_admin">>) =>
     request<User>("PATCH", `/api/admin/users/${encodeURIComponent(username)}`, change),
   resetPassword: (username: string, password: string, must_change_password: boolean) =>
     request<User>("POST", `/api/admin/users/${encodeURIComponent(username)}/reset-password`, {

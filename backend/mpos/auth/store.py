@@ -76,7 +76,8 @@ def _connect():
 # Columns added after the tables were first created: {table: {column: definition}}.
 # Snowflake errors on ADD COLUMN for an existing column, so they are added only when missing.
 ADDED_COLUMNS = {
-    "MPOS_USERS": {"LOCATIONS": "VARCHAR(4000) NOT NULL DEFAULT ''"},
+    "MPOS_USERS": {"LOCATIONS": "VARCHAR(4000) NOT NULL DEFAULT ''",
+                   "IS_ADMIN": "BOOLEAN NOT NULL DEFAULT FALSE"},
 }
 
 
@@ -133,6 +134,7 @@ class User:
     roles: list = field(default_factory=list)
     locations: list = field(default_factory=list)  # ['HO'] = all stores, else store codes
     is_admin: bool = False
+    is_builtin: bool = False  # the .env admin account, not stored in MPOS_USERS
     is_active: bool = True
     must_change_password: bool = False
     created_at: str | None = None
@@ -147,7 +149,8 @@ class User:
     def public(self):
         return {
             "username": self.username, "full_name": self.full_name, "roles": self.roles,
-            "locations": self.locations, "is_admin": self.is_admin, "is_active": self.is_active,
+            "locations": self.locations, "is_admin": self.is_admin, "is_builtin": self.is_builtin,
+            "is_active": self.is_active,
             "must_change_password": self.must_change_password,
             "created_at": self.created_at, "created_by": self.created_by,
             "updated_at": self.updated_at, "updated_by": self.updated_by,
@@ -157,7 +160,7 @@ class User:
 
 def admin_user():
     return User(username=settings.admin_username, full_name="System Administrator",
-                roles=list(R.ROLES) + [R.ADMIN], locations=[L.HO], is_admin=True)
+                roles=list(R.ROLES) + [R.ADMIN], locations=[L.HO], is_admin=True, is_builtin=True)
 
 
 def _ts(v):
@@ -168,7 +171,7 @@ def _user(row):
     return User(
         username=row["USERNAME"], full_name=row["FULL_NAME"],
         roles=R.clean((row["ROLES"] or "").split(",")),
-        locations=L.parse(row.get("LOCATIONS")),
+        locations=L.parse(row.get("LOCATIONS")), is_admin=bool(row.get("IS_ADMIN")),
         is_active=bool(row["IS_ACTIVE"]), must_change_password=bool(row["MUST_CHANGE_PASSWORD"]),
         created_at=_ts(row["CREATED_AT"]), created_by=row["CREATED_BY"],
         updated_at=_ts(row["UPDATED_AT"]), updated_by=row["UPDATED_BY"],
@@ -186,14 +189,14 @@ def list_users():
     return [_user(r) for r in _run(f"SELECT * FROM {USERS} ORDER BY CREATED_AT, USERNAME")]
 
 
-def create_user(username, full_name, roles, locations, password_hash, must_change, actor):
-    _run(f"INSERT INTO {USERS} (USERNAME, FULL_NAME, ROLES, LOCATIONS, PASSWORD_HASH, MUST_CHANGE_PASSWORD, "
-         f"IS_ACTIVE, CREATED_BY) VALUES (?, ?, ?, ?, ?, ?, TRUE, ?)",
-         [username.lower(), full_name, ",".join(roles), ",".join(locations), password_hash, must_change, actor],
-         fetch=False)
+def create_user(username, full_name, roles, locations, password_hash, must_change, actor, is_admin=False):
+    _run(f"INSERT INTO {USERS} (USERNAME, FULL_NAME, ROLES, LOCATIONS, IS_ADMIN, PASSWORD_HASH, "
+         f"MUST_CHANGE_PASSWORD, IS_ACTIVE, CREATED_BY) VALUES (?, ?, ?, ?, ?, ?, ?, TRUE, ?)",
+         [username.lower(), full_name, ",".join(roles), ",".join(locations), is_admin, password_hash, must_change,
+          actor], fetch=False)
 
 
-def update_user(username, actor, *, full_name=None, roles=None, locations=None, is_active=None):
+def update_user(username, actor, *, full_name=None, roles=None, locations=None, is_active=None, is_admin=None):
     sets, params = [], []
     if full_name is not None:
         sets.append("FULL_NAME = ?"); params.append(full_name)
@@ -203,6 +206,8 @@ def update_user(username, actor, *, full_name=None, roles=None, locations=None, 
         sets.append("LOCATIONS = ?"); params.append(",".join(locations))
     if is_active is not None:
         sets.append("IS_ACTIVE = ?"); params.append(is_active)
+    if is_admin is not None:
+        sets.append("IS_ADMIN = ?"); params.append(is_admin)
     if not sets:
         return 0
     sets += ["UPDATED_AT = CURRENT_TIMESTAMP()", "UPDATED_BY = ?"]

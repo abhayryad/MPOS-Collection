@@ -1,4 +1,12 @@
-"""Admin tab: user management and authentication history. Admin account only."""
+"""Admin tab: user management and authentication history.
+
+Two levels of admin:
+- superadmin - the built-in .env account only. Manages everyone and is the only one who can make
+  or remove admins.
+- admin - a user marked IS_ADMIN. Sees every tab and every store's data, but manages only normal
+  (non-admin) users inside their own locations, and can only assign those locations. An HO admin
+  manages every normal user.
+"""
 import re
 
 import snowflake.connector
@@ -24,6 +32,7 @@ class NewUser(BaseModel):
     locations: list[str] = []  # ['HO'] or store codes
     password: str
     must_change_password: bool = False
+    is_admin: bool = False
 
 
 class UserChange(BaseModel):
@@ -31,6 +40,7 @@ class UserChange(BaseModel):
     roles: list[str] | None = None
     locations: list[str] | None = None
     is_active: bool | None = None
+    is_admin: bool | None = None
 
 
 class PasswordReset(BaseModel):
@@ -45,11 +55,48 @@ def _unavailable(fn, *args, **kwargs):
         raise HTTPException(503, str(e))
 
 
-def _check_locations(raw):
-    """Cleaned location list; 400 unless it is HO or known store codes."""
+def scope(admin):
+    """Stores whose users this admin manages: None = all (superadmin or HO admin), else a set."""
+    if admin.is_builtin or L.HO in admin.locations:
+        return None
+    return set(admin.locations)
+
+
+def can_manage(admin, user):
+    """Superadmin manages everyone; an admin manages non-admin users wholly inside their scope."""
+    if admin.is_builtin:
+        return True
+    if user.is_admin:
+        return False
+    allowed = scope(admin)
+    if allowed is None:
+        return True
+    return bool(user.locations) and L.HO not in user.locations and set(user.locations) <= allowed
+
+
+def _managed_user(username, admin):
+    """The user, or 404 - also for users this admin may not manage, so they stay invisible."""
+    user, _ = _unavailable(store.get_user, username)
+    if not user or not can_manage(admin, user):
+        raise HTTPException(404, f"No user '{username}'")
+    return user
+
+
+def _check_admin_flag(admin, wanted):
+    if wanted and not admin.is_builtin:
+        raise HTTPException(403, "Only the superadmin can make or remove admins")
+
+
+def _check_locations(raw, admin):
+    """Cleaned location list; 400 unless it is HO or known store codes inside the admin's scope."""
     locations = L.clean(raw)
     if not locations:
         raise HTTPException(400, "Location is required - choose HO (all stores) or at least one store")
+    allowed = scope(admin)
+    if allowed is not None:
+        outside = [c for c in locations if c not in allowed]
+        if outside:
+            raise HTTPException(403, f"You can only assign your own stores - not {', '.join(outside)}")
     if locations != [L.HO]:
         known = {s["code"] for s in _unavailable(store_master)}
         unknown = [c for c in locations if c not in known]
@@ -59,9 +106,11 @@ def _check_locations(raw):
 
 
 @router.get("/stores")
-def stores():
-    """Active stores (Snowflake GOLD.STORE_PLANT_MASTER) for the location picker."""
-    return _unavailable(store_master)
+def stores(admin: store.User = Depends(admin_only)):
+    """Active stores (Snowflake GOLD.STORE_PLANT_MASTER) this admin may assign, for the location picker."""
+    allowed = scope(admin)
+    rows = _unavailable(store_master)
+    return rows if allowed is None else [s for s in rows if s["code"] in allowed]
 
 
 @router.get("/defaults")
@@ -75,12 +124,13 @@ def roles():
 
 
 @router.get("/users")
-def users():
-    return [u.public() for u in _unavailable(store.list_users)]
+def users(admin: store.User = Depends(admin_only)):
+    return [u.public() for u in _unavailable(store.list_users) if can_manage(admin, u)]
 
 
 @router.post("/users")
 def create_user(body: NewUser, request: Request, admin: store.User = Depends(admin_only)):
+    _check_admin_flag(admin, body.is_admin)
     username = body.username.strip().lower()
     if not USERNAME_RE.match(username):
         raise HTTPException(400, "Username: 2-50 letters, numbers, dot, dash or underscore")
@@ -92,18 +142,20 @@ def create_user(body: NewUser, request: Request, admin: store.User = Depends(adm
     problem = passwords.check_strength(body.password)
     if problem:
         raise HTTPException(400, problem)
-    roles = R.clean(body.roles)
-    locations = _check_locations(body.locations)
+    # admins have every role; their location is the set of stores whose users they manage
+    roles = list(R.ROLES) if body.is_admin else R.clean(body.roles)
+    locations = _check_locations(body.locations, admin)
     try:
         existing, _ = _unavailable(store.get_user, username)
         if existing:
             raise HTTPException(409, f"User '{username}' already exists")
         store.create_user(username, full_name, roles, locations, passwords.hash_password(body.password),
-                          body.must_change_password, admin.username)
+                          body.must_change_password, admin.username, is_admin=body.is_admin)
     except snowflake.connector.errors.ProgrammingError as e:
         raise HTTPException(400, f"Could not create user: {e.msg}")
     store.record("USER_CREATED", username, actor=admin.username,
-                 detail=f"name={full_name}; roles={','.join(roles) or '-'}; location={','.join(locations)}",
+                 detail=f"name={full_name}; {'admin' if body.is_admin else 'roles=' + (','.join(roles) or '-')}; "
+                        f"location={','.join(locations)}",
                  **client(request))
     user, _ = store.get_user(username)
     return user.public()
@@ -111,9 +163,11 @@ def create_user(body: NewUser, request: Request, admin: store.User = Depends(adm
 
 @router.patch("/users/{username}")
 def change_user(username: str, body: UserChange, request: Request, admin: store.User = Depends(admin_only)):
-    user, _ = _unavailable(store.get_user, username)
-    if not user:
-        raise HTTPException(404, f"No user '{username}'")
+    user = _managed_user(username, admin)
+    make_admin = body.is_admin if body.is_admin is not None and body.is_admin != user.is_admin else None
+    _check_admin_flag(admin, make_admin is not None)
+    if user.is_admin if make_admin is None else make_admin:
+        body.roles = list(R.ROLES)  # admins always have every role
     changes = []
     full_name = roles = locations = None
     if body.full_name is not None and body.full_name.strip() != user.full_name:
@@ -125,28 +179,28 @@ def change_user(username: str, body: UserChange, request: Request, admin: store.
         roles = R.clean(body.roles)
         changes.append(f"roles: {','.join(user.roles) or '-'} -> {','.join(roles) or '-'}")
     if body.locations is not None:
-        new = _check_locations(body.locations)
+        new = _check_locations(body.locations, admin)
         if new != user.locations:
             locations = new
             changes.append(f"location: {','.join(user.locations) or '-'} -> {','.join(new)}")
     active = body.is_active if body.is_active is not None and body.is_active != user.is_active else None
     store.update_user(user.username, admin.username, full_name=full_name, roles=roles, locations=locations,
-                      is_active=active)
+                      is_active=active, is_admin=make_admin)
     forget(user.username)
     who = client(request)
     if changes:
         store.record("USER_UPDATED", user.username, actor=admin.username, detail="; ".join(changes), **who)
     if active is not None:
         store.record("USER_ACTIVATED" if active else "USER_DEACTIVATED", user.username, actor=admin.username, **who)
+    if make_admin is not None:
+        store.record("ADMIN_GRANTED" if make_admin else "ADMIN_REVOKED", user.username, actor=admin.username, **who)
     user, _ = store.get_user(user.username)
     return user.public()
 
 
 @router.post("/users/{username}/reset-password")
 def reset_password(username: str, body: PasswordReset, request: Request, admin: store.User = Depends(admin_only)):
-    user, _ = _unavailable(store.get_user, username)
-    if not user:
-        raise HTTPException(404, f"No user '{username}'")
+    user = _managed_user(username, admin)
     problem = passwords.check_strength(body.password)
     if problem:
         raise HTTPException(400, problem)

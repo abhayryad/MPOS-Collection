@@ -5,7 +5,7 @@ import { HO, LocationPicker } from "../components/LocationPicker";
 import { fmtQty } from "../lib/format";
 
 type View = "users" | "activity";
-type Status = "" | "active" | "inactive" | "must_change";
+type Status = "" | "active" | "inactive" | "must_change" | "admin";
 
 const EVENT_LABELS: Record<string, string> = {
   LOGIN_SUCCESS: "Logged in",
@@ -18,8 +18,10 @@ const EVENT_LABELS: Record<string, string> = {
   USER_UPDATED: "User updated",
   USER_ACTIVATED: "Activated",
   USER_DEACTIVATED: "Deactivated",
+  ADMIN_GRANTED: "Made admin",
+  ADMIN_REVOKED: "Admin removed",
 };
-const WARN_EVENTS = new Set(["LOGIN_FAILED", "LOGIN_LOCKED", "USER_DEACTIVATED"]);
+const WARN_EVENTS = new Set(["LOGIN_FAILED", "LOGIN_LOCKED", "USER_DEACTIVATED", "ADMIN_REVOKED"]);
 
 /** Admin tab: User Management (users in Snowflake) and authentication activity. */
 export function Admin({ me }: { me: Me }) {
@@ -35,6 +37,7 @@ export function Admin({ me }: { me: Me }) {
 
   const list = users.data ?? [];
   const active = list.filter((u) => u.is_active).length;
+  const admins = list.filter((u) => u.is_admin).length;
   const roleNames = me.role_names;
   const refresh = () => (view === "users" ? users.reload() : activity.reload());
 
@@ -69,7 +72,12 @@ export function Admin({ me }: { me: Me }) {
           <h1>User Management</h1>
           <div className="sub">
             {fmtQty(list.length)} accounts · {fmtQty(active)} active · {fmtQty(list.length - active)} inactive
-            <span className="hint"> · plus the built-in admin · stored in Snowflake</span>
+            {admins > 0 && <> · {fmtQty(admins)} admin</>}
+            <span className="hint">
+              {me.is_builtin
+                ? " · plus the built-in superadmin · stored in Snowflake"
+                : ` · users you manage at ${me.locations.includes(HO) ? "HO (all stores)" : me.locations.join(", ")}`}
+            </span>
           </div>
         </div>
         <div className="admin-actions">
@@ -122,6 +130,7 @@ export function Admin({ me }: { me: Me }) {
       {editing && (
         <UserDialog
           user={editing === "new" ? null : editing}
+          me={me}
           roleNames={roleNames}
           stores={storeMaster.data ?? []}
           storesLoading={storeMaster.loading}
@@ -177,7 +186,8 @@ function UsersTable({ users, roleNames, onEdit, onReset, onToggleActive }: Users
         (!status ||
           (status === "active" && u.is_active) ||
           (status === "inactive" && !u.is_active) ||
-          (status === "must_change" && u.must_change_password)),
+          (status === "must_change" && u.must_change_password) ||
+          (status === "admin" && u.is_admin)),
     );
   }, [users, search, role, status, location, roleNames]);
 
@@ -213,6 +223,7 @@ function UsersTable({ users, roleNames, onEdit, onReset, onToggleActive }: Users
           <option value="active">Active</option>
           <option value="inactive">Inactive</option>
           <option value="must_change">Must change password</option>
+          <option value="admin">Admins</option>
         </select>
         <span className="hint admin-count">
           {shown.length} of {users.length} shown
@@ -240,7 +251,7 @@ function UsersTable({ users, roleNames, onEdit, onReset, onToggleActive }: Users
               </td>
               <td className="mono">admin</td>
               <td>
-                <span className="chip chip-admin">ADMIN</span>
+                <span className="chip chip-admin">SUPERADMIN</span>
               </td>
               <td>
                 <span className="chip chip-admin">HO</span>
@@ -261,8 +272,9 @@ function UsersTable({ users, roleNames, onEdit, onReset, onToggleActive }: Users
                 <td className="mono">{u.username}</td>
                 <td>
                   <span className="chips">
-                    {u.roles.length === 0 && <span className="muted">no access</span>}
-                    {u.roles.map((r) => (
+                    {u.is_admin && <span className="chip chip-admin">ADMIN</span>}
+                    {!u.is_admin && u.roles.length === 0 && <span className="muted">no access</span>}
+                    {!u.is_admin && u.roles.map((r) => (
                       <span key={r} className="chip" title={roleNames[r]}>
                         {r}
                       </span>
@@ -458,6 +470,7 @@ function PasswordField({ value, onChange, defaultPassword }: { value: string; on
 
 interface UserDialogProps {
   user: User | null; // null = new user
+  me: Me;
   roleNames: Record<string, string>;
   stores: StoreInfo[];
   storesLoading: boolean;
@@ -467,15 +480,17 @@ interface UserDialogProps {
   onSaved: (message: string) => void;
 }
 
-function UserDialog({ user, roleNames, stores, storesLoading, storesError, defaultPassword, onClose, onSaved }: UserDialogProps) {
+function UserDialog({ user, me, roleNames, stores, storesLoading, storesError, defaultPassword, onClose, onSaved }: UserDialogProps) {
   const [fullName, setFullName] = useState(user?.full_name ?? "");
   const [username, setUsername] = useState(user?.username ?? "");
   const [roles, setRoles] = useState<string[]>(user?.roles ?? Object.keys(roleNames));
   const [locations, setLocations] = useState<string[]>(user?.locations ?? []);
   const [password, setPassword] = useState(user ? "" : defaultPassword || generatePassword());
   const [mustChange, setMustChange] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(user?.is_admin ?? false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const superadmin = me.is_builtin; // only the superadmin makes or removes admins
 
   const toggleRole = (r: string) =>
     setRoles((cur) => (cur.includes(r) ? cur.filter((x) => x !== r) : Object.keys(roleNames).filter((x) => cur.includes(x) || x === r)));
@@ -486,10 +501,12 @@ function UserDialog({ user, roleNames, stores, storesLoading, storesError, defau
     setError(null);
     try {
       if (user) {
-        await api.updateUser(user.username, { full_name: fullName, roles, locations });
+        await api.updateUser(user.username, { full_name: fullName, roles, locations, is_admin: isAdmin });
         onSaved(`${fullName} updated`);
       } else {
-        await api.createUser({ username, full_name: fullName, roles, locations, password, must_change_password: mustChange });
+        await api.createUser({
+          username, full_name: fullName, roles, locations, password, must_change_password: mustChange, is_admin: isAdmin,
+        });
         onSaved(`${fullName} (${username.trim().toLowerCase()}) created`);
       }
     } catch (err) {
@@ -518,21 +535,33 @@ function UserDialog({ user, roleNames, stores, storesLoading, storesError, defau
           />
           {!user && <span className="field-hint">Used to log in. Lower-case letters, numbers, dot, dash or underscore.</span>}
         </label>
-        <fieldset>
-          <legend>Roles - tabs this user can open</legend>
-          {Object.entries(roleNames).map(([id, name]) => (
-            <label key={id} className="check">
-              <input type="checkbox" checked={roles.includes(id)} onChange={() => toggleRole(id)} />
-              <span className="chip">{id}</span> {name}
-            </label>
-          ))}
-        </fieldset>
+        {superadmin && (
+          <label className="check">
+            <input type="checkbox" checked={isAdmin} onChange={(e) => setIsAdmin(e.target.checked)} />
+            <span className="chip chip-admin">ADMIN</span> Admin - every tab and store, manages users at their location
+          </label>
+        )}
+        {isAdmin ? (
+          <span className="field-hint">Admins see every tab and every store's data. Their location sets whose users they manage.</span>
+        ) : (
+          <fieldset>
+            <legend>Roles - tabs this user can open</legend>
+            {Object.entries(roleNames).map(([id, name]) => (
+              <label key={id} className="check">
+                <input type="checkbox" checked={roles.includes(id)} onChange={() => toggleRole(id)} />
+                <span className="chip">{id}</span> {name}
+              </label>
+            ))}
+          </fieldset>
+        )}
         <LocationPicker
           stores={stores}
           value={locations}
           onChange={setLocations}
           loading={storesLoading}
           error={storesError}
+          allowHo={superadmin || me.locations.includes(HO)}
+          legend={isAdmin ? "Manages users at - HO = every user, or the stores whose users this admin manages" : undefined}
         />
         {!user && (
           <>
@@ -639,9 +668,9 @@ const today = () => new Date().toISOString().slice(0, 10);
 function exportUsers(users: User[], roleNames: Record<string, string>) {
   saveCsv(
     `mpos_users_${today()}.csv`,
-    ["username", "full_name", "roles", "role_names", "locations", "active", "must_change_password", "last_login_at", "created_at", "created_by", "updated_at", "updated_by"],
+    ["username", "full_name", "admin", "roles", "role_names", "locations", "active", "must_change_password", "last_login_at", "created_at", "created_by", "updated_at", "updated_by"],
     users.map((u) => [
-      u.username, u.full_name, u.roles.join(" "), u.roles.map((r) => roleNames[r] ?? r).join("; "), u.locations.join(" "),
+      u.username, u.full_name, u.is_admin, u.roles.join(" "), u.roles.map((r) => roleNames[r] ?? r).join("; "), u.locations.join(" "),
       u.is_active, u.must_change_password, u.last_login_at, u.created_at, u.created_by, u.updated_at, u.updated_by,
     ]),
   );

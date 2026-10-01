@@ -28,6 +28,12 @@ or, failing that, `SNOWFLAKE_PASSWORD`.
 - **admin** – built-in account; its password is `MPOS_ADMIN_PASSWORD` in `.env` (whoever knows it is
   admin). Sees every tab plus **Admin → User Management**: add users, edit name and roles,
   reset passwords, activate / deactivate, and the **Activity** log. Works even if Snowflake is down.
+- **Superadmin vs admins** – the built-in account is the only superadmin: it manages everyone and
+  is the only one who can make a user an admin or remove it (the *Admin* box in New / Edit user,
+  stored in `MPOS_USERS.IS_ADMIN`). An admin sees every tab and every store's data, but in the Admin
+  tab manages only normal users at their own location: an `HO` admin manages every normal user, a
+  store admin only users whose stores are all theirs, and can assign only those stores. Admins never
+  see or edit other admins. Rules are in `backend/mpos/api/admin.py` (`scope`, `can_manage`).
 - **Roles** give tabs: `SALE_POSTING` → Sale Posting Download, `REPORTS` → Reports
   (defined in `backend/mpos/auth/roles.py` and `frontend/src/App.tsx`).
 - **Location** limits which stores a user sees: `HO` = all stores, otherwise one or more store

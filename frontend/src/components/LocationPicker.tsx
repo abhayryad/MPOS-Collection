@@ -9,10 +9,20 @@ interface Props {
   onChange: (locations: string[]) => void;
   loading?: boolean;
   error?: string | null;
+  allowHo?: boolean; // false for an admin limited to their own stores
+  legend?: string;
 }
 
 /** HO (all stores) or a searchable multi-select of store codes. */
-export function LocationPicker({ stores, value, onChange, loading, error }: Props) {
+export function LocationPicker({
+  stores,
+  value,
+  onChange,
+  loading,
+  error,
+  allowHo = true,
+  legend = "Location - which stores this user can see",
+}: Props) {
   const [search, setSearch] = useState("");
   const isHo = value.includes(HO);
   const byCode = useMemo(() => new Map(stores.map((s) => [s.code, s])), [stores]);
@@ -32,11 +42,13 @@ export function LocationPicker({ stores, value, onChange, loading, error }: Prop
 
   return (
     <fieldset className="location-picker">
-      <legend>Location - which stores this user can see</legend>
-      <label className="check">
-        <input type="checkbox" checked={isHo} onChange={() => onChange(isHo ? [] : [HO])} />
-        <span className="chip chip-admin">HO</span> Head office - all stores
-      </label>
+      <legend>{legend}</legend>
+      {allowHo && (
+        <label className="check">
+          <input type="checkbox" checked={isHo} onChange={() => onChange(isHo ? [] : [HO])} />
+          <span className="chip chip-admin">HO</span> Head office - all stores
+        </label>
+      )}
 
       {!isHo && (
         <>

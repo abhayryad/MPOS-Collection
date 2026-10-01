@@ -14,7 +14,8 @@ CREATE TABLE IF NOT EXISTS V2RETAIL.BRONZE.MPOS_USERS (
     UPDATED_AT            TIMESTAMP_NTZ,
     UPDATED_BY            VARCHAR(50),
     LAST_LOGIN_AT         TIMESTAMP_NTZ,
-    LOCATIONS             VARCHAR(4000) NOT NULL DEFAULT ''     -- 'HO' = all stores, else store codes 'HD22,DH24'
+    LOCATIONS             VARCHAR(4000) NOT NULL DEFAULT '',    -- 'HO' = all stores, else store codes 'HD22,DH24'
+    IS_ADMIN              BOOLEAN       NOT NULL DEFAULT FALSE  -- every tab, every store, Admin tab
 );
 -- Columns added after the first release are listed in backend/mpos/auth/store.py (ADDED_COLUMNS)
 -- and added automatically when missing.
@@ -26,7 +27,8 @@ CREATE TABLE IF NOT EXISTS V2RETAIL.BRONZE.MPOS_AUTH_HISTORY (
     ACTOR       VARCHAR(50),        -- who did it (same as USERNAME except for admin changes)
     EVENT       VARCHAR(40)   NOT NULL,
     -- LOGIN_SUCCESS, LOGIN_FAILED, LOGIN_LOCKED, LOGOUT, PASSWORD_CHANGED,
-    -- USER_CREATED, USER_UPDATED, PASSWORD_RESET, USER_ACTIVATED, USER_DEACTIVATED
+    -- USER_CREATED, USER_UPDATED, PASSWORD_RESET, USER_ACTIVATED, USER_DEACTIVATED,
+    -- ADMIN_GRANTED, ADMIN_REVOKED
     DETAIL      VARCHAR(1000),
     IP_ADDRESS  VARCHAR(64),
     USER_AGENT  VARCHAR(500)

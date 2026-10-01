@@ -6,7 +6,8 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-from mpos.auth import passwords, roles, sessions
+from mpos.api import admin
+from mpos.auth import locations, passwords, roles, sessions, store
 from mpos.config import settings
 
 
@@ -60,6 +61,43 @@ class RolesTest(unittest.TestCase):
     def test_clean(self):
         self.assertEqual(roles.clean([" reports", "SALE_POSTING", "ADMIN", "bogus", "REPORTS"]),
                          ["SALE_POSTING", "REPORTS"])  # ADMIN can't be assigned; order fixed
+
+    def test_admin_user_row(self):
+        row = {"USERNAME": "v1", "FULL_NAME": "A", "ROLES": "", "LOCATIONS": "HD22", "IS_ADMIN": True,
+               "IS_ACTIVE": True, "MUST_CHANGE_PASSWORD": False, "CREATED_AT": None, "CREATED_BY": None,
+               "UPDATED_AT": None, "UPDATED_BY": None, "LAST_LOGIN_AT": None}
+        admin = store._user(row)
+        self.assertTrue(admin.is_admin and not admin.is_builtin)
+        self.assertTrue(admin.can(roles.REPORTS))
+        self.assertIsNone(locations.allowed_stores(admin))  # every store
+        plain = store._user({**row, "IS_ADMIN": False})
+        self.assertFalse(plain.is_admin or plain.can(roles.REPORTS))
+        self.assertTrue(store.admin_user().is_builtin)
+
+
+
+class AdminScopeTest(unittest.TestCase):
+    def user(self, locations, is_admin=False):
+        return store.User(username="u", full_name="U", locations=locations, is_admin=is_admin)
+
+    def test_superadmin_manages_everyone(self):
+        root = store.admin_user()
+        self.assertIsNone(admin.scope(root))
+        self.assertTrue(admin.can_manage(root, self.user(["HO"], is_admin=True)))
+
+    def test_ho_admin_manages_normal_users_only(self):
+        ho = self.user(["HO"], is_admin=True)
+        self.assertIsNone(admin.scope(ho))
+        self.assertTrue(admin.can_manage(ho, self.user(["HO"])))
+        self.assertFalse(admin.can_manage(ho, self.user(["HD22"], is_admin=True)))
+
+    def test_store_admin_manages_only_users_wholly_in_their_stores(self):
+        a = self.user(["DH24", "HD22"], is_admin=True)
+        self.assertEqual(admin.scope(a), {"DH24", "HD22"})
+        self.assertTrue(admin.can_manage(a, self.user(["HD22"])))
+        self.assertFalse(admin.can_manage(a, self.user(["HD22", "XX01"])))
+        self.assertFalse(admin.can_manage(a, self.user(["HO"])))
+        self.assertFalse(admin.can_manage(a, self.user([])))
 
 
 if __name__ == "__main__":

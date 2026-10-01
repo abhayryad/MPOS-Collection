@@ -113,7 +113,7 @@ function Shell({ me, onLogout, onChangePassword }: { me: Me; onLogout: () => voi
         onToggleTheme={toggleTheme}
         user={me}
         onLogout={onLogout}
-        onChangePassword={me.is_admin ? undefined : onChangePassword}
+        onChangePassword={me.is_builtin ? undefined : onChangePassword}
       />
       <main className="main">
         <div className="wrap">

@@ -97,7 +97,7 @@ export function Sidebar<R extends string>({ items, active, onToggleTheme, user, 
             <span className="user-name">{user.full_name}</span>
             <span className="user-login">
               {user.username}
-              {user.is_admin && user.username !== "admin" && " · admin"}
+              {user.is_admin && !user.is_builtin && " · admin"}
               {" · "}
               {user.locations.includes("HO") ? "HO" : user.locations.join(", ") || "no store"}
             </span>
