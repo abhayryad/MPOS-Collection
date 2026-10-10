@@ -4,10 +4,11 @@
 (QTY < 0). Both have the same tab-separated layout:
 
     1   HD22       20260928  *  *  *  ...
-    2   84051491   -  1  +  450  -  ZPR1  0  -  ZPR2  0  -  ZPR3  0
+    2   84051491             -  1  +  450  -  ZPR1  0  -  ZPR2  0  -  ZPR3  0
 
 Line 1 is the header (store, date as YYYYMMDD, then '*' fillers). Every
-other line is one item: barcode, qty, price, and DISCAMOUNT after ZPR3.
+other line is one item: barcode, an empty column (under the date), qty,
+price, and DISCAMOUNT after ZPR3.
 In the return file qty and amounts are written without the minus sign.
 """
 from .common import header_line, num
@@ -17,9 +18,9 @@ HEADER_STARS = 13
 
 def item_line(r):
     return "\t".join([
-        "2", r.BARCODE, "-", num(r.QTY), "+", num(r.PRICE),
+        "2", r.BARCODE, "", "-", num(r.QTY), "+", num(r.PRICE),
         "-", "ZPR1", "0", "-", "ZPR2", "0", "-", "ZPR3", num(r.DISCAMOUNT),
-    ])
+    ]) + "\t"  # item lines end with a tab; the header line does not
 
 
 def prepare(df):

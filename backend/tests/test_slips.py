@@ -35,32 +35,28 @@ class NumTest(unittest.TestCase):
 
 
 class MopSlipTest(unittest.TestCase):
-    CODES = ["CA", "CN", "UPI"]
-
-    def test_every_mop_listed_with_zero_fill_and_cn_both_signs(self):
+    def test_only_used_mops_listed_no_zero_lines(self):
         df = payments(("HD22 ", "2026-09-15", "CREDITMEMO", -450.0),
                       ("HD22", "2026-09-15", "UPI", 450.0))
-        slips = mop.render(mop.build(df, self.CODES))
+        slips = mop.render(mop.build(df))
         self.assertEqual(slips[("HD22", "2026-09-15")],
-                         "HD22\t09-15-2026\tCA\t+\t0.00\n"
-                         "HD22\t09-15-2026\tCN\t+\t0.00\n"
-                         "HD22\t09-15-2026\tCN\t-\t450.00\n"
-                         "HD22\t09-15-2026\tUPI\t+\t450.00\n")
+                         "HD22\t09-15-2026\tCN\t\t-\t450.00\t\n"
+                         "HD22\t09-15-2026\tPUPI\t\t+\t450.00\t\n")
 
     def test_amounts_summed_per_mop_and_sign(self):
         df = payments(("HD22", "2026-08-26", "CASH", 393.75),
                       ("HD22", "2026-08-26", "CASH", 375.0),
                       ("HD22", "2026-08-26", "UPI", 1325.0),
                       ("HD22", "2026-08-26", "CASH", -50.0))
-        text = mop.render(mop.build(df, self.CODES))[("HD22", "2026-08-26")]
-        self.assertIn("HD22\t08-26-2026\tCA\t+\t768.75\n", text)
-        self.assertIn("HD22\t08-26-2026\tCA\t-\t50.00\n", text)  # negative non-CN MOP gets its own line
-        self.assertIn("HD22\t08-26-2026\tUPI\t+\t1325.00\n", text)
+        text = mop.render(mop.build(df))[("HD22", "2026-08-26")]
+        self.assertIn("HD22\t08-26-2026\tCA\t\t+\t768.75\t\n", text)
+        self.assertIn("HD22\t08-26-2026\tCA\t\t-\t50.00\t\n", text)  # negative non-CN MOP gets its own line
+        self.assertIn("HD22\t08-26-2026\tPUPI\t\t+\t1325.00\t\n", text)
 
     def test_mop_codes(self):
         self.assertEqual(mop.mop_code("CASH"), "CA")
         self.assertEqual(mop.mop_code("CREDITMEMO"), "CN")
-        self.assertEqual(mop.mop_code("UPI"), "UPI")
+        self.assertEqual(mop.mop_code("UPI"), "PUPI")
 
 
 class SaleReturnSlipTest(unittest.TestCase):
@@ -70,17 +66,24 @@ class SaleReturnSlipTest(unittest.TestCase):
         text = sales.render(df)[("HD22", "2026-09-28")]
         self.assertEqual(text,
                          "1\tHD22\t20260928" + "\t*" * 13 + "\n"
-                         "2\t84051491\t-\t1\t+\t324.5\t-\tZPR1\t0\t-\tZPR2\t0\t-\tZPR3\t50\n"
-                         "2\t84051491\t-\t2\t+\t450\t-\tZPR1\t0\t-\tZPR2\t0\t-\tZPR3\t0\n")
+                         "2\t84051491\t\t-\t1\t+\t324.5\t-\tZPR1\t0\t-\tZPR2\t0\t-\tZPR3\t50\t\n"
+                         "2\t84051491\t\t-\t2\t+\t450\t-\tZPR1\t0\t-\tZPR2\t0\t-\tZPR3\t0\t\n")
 
     def test_returns_go_to_r_slip_unsigned(self):
         pay = payments(("HD22", "2026-09-28", "UPI", 450.0))
         it = items(("HD22", "2026-09-28", "TXN1", 1, "84051491", 1.0, 450.0, 0.0),
                    ("HD22", "2026-09-28", "RTN1", 1, "84051491", -1.0, 450.0, 0.0))
-        slips = build_all(["UPI"], pay, it, bills())
+        slips = build_all(["PUPI"], pay, it, bills())
         self.assertEqual(slips["S"][("HD22", "2026-09-28")].count("\n2\t"), 1)
         self.assertEqual(slips["R"][("HD22", "2026-09-28")].splitlines()[1],
-                         "2\t84051491\t-\t1\t+\t450\t-\tZPR1\t0\t-\tZPR2\t0\t-\tZPR3\t0")
+                         "2\t84051491\t\t-\t1\t+\t450\t-\tZPR1\t0\t-\tZPR2\t0\t-\tZPR3\t0\t")
+
+    def test_files_use_windows_line_endings(self):
+        pay = payments(("HD22", "2026-09-28", "UPI", 450.0))
+        it = items(("HD22", "2026-09-28", "TXN1", 1, "84051491", 1.0, 450.0, 0.0))
+        for kind, slips in build_all(["PUPI"], pay, it, bills()).items():
+            for text in slips.values():
+                self.assertEqual(text.count("\n"), text.count("\r\n"), kind)
 
 
 class CancelSlipTest(unittest.TestCase):

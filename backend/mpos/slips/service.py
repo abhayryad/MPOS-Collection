@@ -12,6 +12,8 @@ KINDS = {
     "C": "Cancel",
 }
 TODAY_BLOCKED = "Today's slips can be downloaded from tomorrow, once the day is closed"
+# Slip files are uploaded on Windows (Server 2012 Notepad etc.), which needs CRLF line breaks
+EOL = "\r\n"
 
 
 def downloadable(day):
@@ -46,11 +48,13 @@ def load(start=None, end=None, stores=None):
 
 
 def build_all(codes, pay, item, bill):
-    """{kind: {(store, day): text}} for the rows returned by load()."""
+    """{kind: {(store, day): text}} for the rows returned by load(), with CRLF line endings."""
     item = sales.prepare(item)
-    return {
-        "M": mop.render(mop.build(pay, codes)) if not pay.empty else {},
+    built = {
+        "M": mop.render(mop.build(pay)) if not pay.empty else {},
         "S": sales.render(item[item["QTY"] >= 0]),
         "R": sales.render(item[item["QTY"] < 0]),
         "C": cancel.render(cancel.prepare(bill)),
     }
+    return {kind: {key: text.replace("\n", EOL) for key, text in slips.items()}
+            for kind, slips in built.items()}
