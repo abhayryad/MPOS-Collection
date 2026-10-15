@@ -1,5 +1,5 @@
-"""Reports tab: Electronic General (summary, paged preview, Excel), Store Sale by Hour and
-Daily Sales Summary (table, Excel)."""
+"""Reports tab: Electronic General (summary, paged preview, Excel), Store Sale by Hour, Daily Sales
+Summary and Head Cashier (table, Excel)."""
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
 
@@ -8,7 +8,7 @@ from ..auth.locations import stores_for
 from ..auth.roles import REPORTS
 from ..auth.store import User
 from ..db import connect
-from ..reports import daily_sales_summary, electronic_journal, sale_by_hour
+from ..reports import daily_sales_summary, electronic_journal, head_cashier, sale_by_hour
 from .common import check_date
 
 report_user = require(REPORTS)
@@ -88,3 +88,21 @@ def daily_sales_summary_xlsx(date: str, store: str, user: User = Depends(report_
         raise HTTPException(404, "No bills for that store and day")
     return Response(daily_sales_summary.to_xlsx(report), media_type=XLSX,
                     headers={"Content-Disposition": f'attachment; filename="daily_sales_summary_{store}_{date}.xlsx"'})
+
+
+@router.get("/head-cashier")
+def head_cashier_data(date: str, store: str, user: User = Depends(report_user)):
+    date, store = check_date(date, "date"), _one_store(user, store)
+    with connect() as conn:
+        return head_cashier.load(conn, date, store)
+
+
+@router.get("/head-cashier.xlsx")
+def head_cashier_xlsx(date: str, store: str, user: User = Depends(report_user)):
+    date, store = check_date(date, "date"), _one_store(user, store)
+    with connect() as conn:
+        report = head_cashier.load(conn, date, store)
+    if not report["rows"]:
+        raise HTTPException(404, "No bills for that store and day")
+    return Response(head_cashier.to_xlsx(report), media_type=XLSX,
+                    headers={"Content-Disposition": f'attachment; filename="head_cashier_{store}_{date}.xlsx"'})

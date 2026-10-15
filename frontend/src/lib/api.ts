@@ -80,6 +80,9 @@ export interface DailySalesSummary {
   totals: Record<string, number>;
 }
 
+/** Same shape: columns from the server, one row per counter + cashier, totals. */
+export type HeadCashier = DailySalesSummary;
+
 export interface User {
   username: string;
   full_name: string;
@@ -218,6 +221,9 @@ export const api = {
     getJson<DailySalesSummary>(`/api/reports/daily-sales-summary?${storeDay(date, store)}`, signal),
   dailySalesSummaryXlsxUrl: (date: string, store: string) =>
     `/api/reports/daily-sales-summary.xlsx?${storeDay(date, store)}`,
+  headCashier: (date: string, store: string, signal?: AbortSignal) =>
+    getJson<HeadCashier>(`/api/reports/head-cashier?${storeDay(date, store)}`, signal),
+  headCashierXlsxUrl: (date: string, store: string) => `/api/reports/head-cashier.xlsx?${storeDay(date, store)}`,
 
   zipUrl: (f: Filters, kinds: Kind[]) => `/api/slips.zip?${query(f)}&kinds=${kinds.join("")}`,
 };

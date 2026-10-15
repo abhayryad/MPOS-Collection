@@ -12,7 +12,10 @@ Internal web app over the **datav2** database on **server 28** (SQL Server).
     hour the receipt was paid, with a totals row.
   - **Daily Sales Summary** – one store, one day: one row per counter (terminal) with bills, gross,
     discount, net, credit notes issued / applied, payable and net sale, with a totals row.
-  - **MOP** – placeholder ("Coming soon"); not specified yet.
+  - **Head Cashier** – one store, one day: one row per counter (terminal) + cashier with Cash,
+    Credit Note and PUPI sales, net, gross, discount, bills and average ticket; return bills under
+    their return counter (HD22R1, from the receipt number) + cashier; totals row. Cash / Credit Note / PUPI Paid (so Net Sale Paid) are 0 until
+    cashier declarations are available; Total Sale Diff = Net Sale − Net Sale Paid.
 
 Slips and reports are built from the database **on every request**; nothing is stored.
 
@@ -102,6 +105,7 @@ backend/
       electronic_journal.py   Electronic General query, preview paging, Excel export
       sale_by_hour.py         Store Sale by Hour query and Excel export
       daily_sales_summary.py  Daily Sales Summary query, per-counter totals, Excel export
+      head_cashier.py         Head Cashier query, per counter + cashier totals, Excel export
     auth/                  login: passwords.py, sessions.py, roles.py, store.py (Snowflake),
                            locations.py (store access), deps.py
     stores.py              active store list from Snowflake STORE_PLANT_MASTER (cached 10 min)
@@ -117,7 +121,7 @@ frontend/                  React + TypeScript + Vite
   src/
     App.tsx                tabs and sub-tabs (add a report: a child in the menu + a route)
     pages/                 SalePostingDownload.tsx, Admin.tsx, Login.tsx
-      reports/             ElectronicGeneral.tsx, SaleByHour.tsx, DailySalesSummary.tsx, Mop.tsx
+      reports/             ElectronicGeneral.tsx, SaleByHour.tsx, DailySalesSummary.tsx, HeadCashier.tsx
     components/            charts, filters, store search / location picker, slip table and preview,
                            report preview
     lib/                   api.ts (typed API client), format.ts, hooks.ts
@@ -136,11 +140,13 @@ output/                    files written by the command line (git-ignored)
 | Electronic General column order and Excel widths | `backend/mpos/reports/electronic_journal.py` |
 | Sales hour = time the receipt was paid; amount = `NETAMOUNTINCLTAX`, net of returns | `backend/mpos/reports/sale_by_hour.py` |
 | Daily Sales Summary column formulas (gross, discount, credit notes, payable, net sale); cash refund and rounding are 0 for now | `backend/mpos/reports/daily_sales_summary.py` (docstring) |
-| Store Sale by Hour and Daily Sales Summary need one store picked | `backend/mpos/api/reports.py` → `_one_store()` |
+| Head Cashier columns, return rows (`NETAMOUNT < 0`, counter from the receipt number), only CASH / UPI / CREDITMEMO tenders | `backend/mpos/reports/head_cashier.py` (docstring) |
+| Store Sale by Hour, Daily Sales Summary and Head Cashier need one store picked | `backend/mpos/api/reports.py` → `_one_store()` |
 
 The report uses `dbo.VW_ELECTRONIC_JOURNAL` when the view exists with every report column;
 otherwise it runs the SELECT from the `.sql` file directly. After editing the `.sql` file,
 run it on datav2 (`CREATE OR ALTER VIEW`) to update the view.
 
 Changing a slip or report format? Update the matching test in `backend/tests/` (`test_slips.py`,
-`test_electronic_journal.py`, `test_sale_by_hour.py`, `test_daily_sales_summary.py`) in the same change.
+`test_electronic_journal.py`, `test_sale_by_hour.py`, `test_daily_sales_summary.py`,
+`test_head_cashier.py`) in the same change.
