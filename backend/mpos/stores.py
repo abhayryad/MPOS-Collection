@@ -1,13 +1,13 @@
 """Store master: the store codes an admin can assign as a user's location.
 
-Source: Snowflake V2RETAIL.GOLD.STORE_PLANT_MASTER, active stores only (ST_TYP = 'STORE',
+Source: Snowflake V2RETAIL.AKS_SILVER.SLV_MIS_STORE_MASTER, active stores only (ST_TYP = 'STORE',
 ST_STAT = 'ACT'). Cached for 10 minutes - the list changes rarely.
 """
 import time
 
 from .auth import store as sf
 
-STORE_MASTER = "V2RETAIL.GOLD.STORE_PLANT_MASTER"
+STORE_MASTER = "V2RETAIL.AKS_SILVER.SLV_MIS_STORE_MASTER"
 _CACHE_SECONDS = 600
 _cache = {"until": 0.0, "rows": []}
 

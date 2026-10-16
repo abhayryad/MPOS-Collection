@@ -40,7 +40,7 @@ or, failing that, `SNOWFLAKE_PASSWORD`.
 - **Roles** give tabs: `SALE_POSTING` → Sale Posting Download, `REPORTS` → Reports
   (defined in `backend/mpos/auth/roles.py` and `frontend/src/App.tsx`).
 - **Location** limits which stores a user sees: `HO` = all stores, otherwise one or more store
-  codes picked from the active stores in Snowflake `V2RETAIL.GOLD.STORE_PLANT_MASTER`
+  codes picked from the active stores in Snowflake `V2RETAIL.AKS_SILVER.SLV_MIS_STORE_MASTER`
   (`ST_TYP = 'STORE'`, `ST_STAT = 'ACT'`). Enforced on the server for the dashboard, slips, ZIP,
   report preview and Excel (`backend/mpos/auth/locations.py`); admin is always `HO`.
 - New users and password resets start with the default password (`MPOS_DEFAULT_PASSWORD` in `.env`).
@@ -108,7 +108,7 @@ backend/
       head_cashier.py         Head Cashier query, per counter + cashier totals, Excel export
     auth/                  login: passwords.py, sessions.py, roles.py, store.py (Snowflake),
                            locations.py (store access), deps.py
-    stores.py              active store list from Snowflake STORE_PLANT_MASTER (cached 10 min)
+    stores.py              active store list from Snowflake SLV_MIS_STORE_MASTER (cached 10 min)
     api/                   HTTP endpoints: auth, admin, dashboard, slips, reports
     main.py                FastAPI app; serves the built frontend
     cli.py                 command-line tools (python -m mpos ...)

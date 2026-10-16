@@ -107,7 +107,7 @@ def _check_locations(raw, admin):
 
 @router.get("/stores")
 def stores(admin: store.User = Depends(admin_only)):
-    """Active stores (Snowflake GOLD.STORE_PLANT_MASTER) this admin may assign, for the location picker."""
+    """Active stores (Snowflake AKS_SILVER.SLV_MIS_STORE_MASTER) this admin may assign, for the location picker."""
     allowed = scope(admin)
     rows = _unavailable(store_master)
     return rows if allowed is None else [s for s in rows if s["code"] in allowed]
