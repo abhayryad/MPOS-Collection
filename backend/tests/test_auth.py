@@ -102,3 +102,29 @@ class AdminScopeTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StoreReconnectTest(unittest.TestCase):
+    """An expired Snowflake login (e.g. overnight) reconnects instead of failing every request."""
+
+    def _conn(self, error=None):
+        cur = mock.Mock()
+        cur.execute.side_effect = error
+        cur.fetchall.return_value = [{"N": 1}]
+        return mock.Mock(is_closed=mock.Mock(return_value=False), cursor=mock.Mock(return_value=cur))
+
+    def _run_with(self, stale, fresh):
+        with mock.patch.object(store, "_conn", stale), mock.patch.object(store, "_tables_ready", True), \
+                mock.patch.object(store, "_connect", return_value=fresh) as connect:
+            return store._run("SELECT 1"), connect
+
+    def test_expired_token_reconnects(self):
+        expired = store.snowflake.connector.errors.ProgrammingError(msg="Authentication token has expired", errno=390114)
+        rows, connect = self._run_with(self._conn(expired), self._conn())
+        self.assertEqual(rows, [{"N": 1}])
+        connect.assert_called_once()
+
+    def test_bad_sql_is_not_retried(self):
+        bad = store.snowflake.connector.errors.ProgrammingError(msg="syntax error", errno=1003)
+        with self.assertRaises(store.snowflake.connector.errors.ProgrammingError):
+            self._run_with(self._conn(bad), self._conn())

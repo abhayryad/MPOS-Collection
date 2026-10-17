@@ -64,7 +64,7 @@ def _connect():
             account=settings.sf_account, user=settings.sf_user, **creds,
             role=settings.sf_role or None, warehouse=settings.sf_warehouse or None,
             database=settings.sf_database, schema=settings.sf_schema,
-            login_timeout=20, network_timeout=30,
+            login_timeout=20, network_timeout=30, client_session_keep_alive=True,
             session_parameters={"TIMEZONE": "Asia/Kolkata", "QUERY_TAG": "mpos-collection-auth"},
         )
     except snowflake.connector.errors.Error as e:
@@ -105,6 +105,10 @@ def _ensure_tables(conn):
     _tables_ready = True
 
 
+# Snowflake error codes for a session whose login has expired or gone - reconnect, not bad SQL.
+SESSION_EXPIRED = {390111, 390112, 390114}
+
+
 def _run(sql, params=(), fetch=True):
     """Run one statement; rows as dicts when fetch. Reconnects once if the connection dropped."""
     global _conn
@@ -117,8 +121,10 @@ def _run(sql, params=(), fetch=True):
                 cur = _conn.cursor(snowflake.connector.DictCursor)
                 cur.execute(sql, list(params))
                 return cur.fetchall() if fetch else cur.rowcount
-            except snowflake.connector.errors.ProgrammingError:
-                raise  # bad SQL / constraint - not a connection problem
+            except snowflake.connector.errors.ProgrammingError as e:
+                if e.errno not in SESSION_EXPIRED or attempt == 2:
+                    raise  # bad SQL / constraint - not a connection problem
+                _conn = None  # login token expired (e.g. overnight) - log in again
             except (snowflake.connector.errors.Error, OSError) as e:
                 _conn = None
                 if attempt == 2:
