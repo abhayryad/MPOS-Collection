@@ -24,6 +24,8 @@ The switches are flipped with POST /sim/switch (phone_sim.py switch ... does it 
     {"level": "veto" | "lock", "target": ...}           HO veto / immediate lock on a terminal
 each with "on": true/false and an optional "reason". GET /sim/stats shows what reached "Snowflake".
 
+--host 0.0.0.0 shares it on the LAN (it prints the link). The /sim pages have no login - fake data only.
+
 http://127.0.0.1:8029/sim shows every phone live, coloured by state, with the switches as buttons.
 """
 import argparse
@@ -192,6 +194,7 @@ def main():
     ap.add_argument("--real-stores", action="store_true", help="use the real active stores from the store master")
     ap.add_argument("--per-store", default="2", help='terminals per store: a count, or a range like "1-6"')
     ap.add_argument("--port", type=int, default=8029)
+    ap.add_argument("--host", default="127.0.0.1", help="0.0.0.0 to share it on the LAN (default: this PC only)")
     ap.add_argument("--flush-seconds", type=int, default=10, help="check-in writes (real portal: 300)")
     args = ap.parse_args()
 
@@ -252,8 +255,17 @@ def main():
     ours = [r for r in routes if getattr(r, "path", "").startswith("/sim")]
     routes[:] = ours + [r for r in routes if r not in ours]
     print(f"Fake device portal: {len(fake.stores)} stores, {len(fake.terminals)} terminals, "
-          f"check-ins written every {args.flush_seconds} s. Live view: http://127.0.0.1:{args.port}/sim")
-    uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
+          f"check-ins written every {args.flush_seconds} s.")
+    for ip in (lan_ips() if args.host == "0.0.0.0" else [args.host]):
+        print(f"  Live view: http://{ip}:{args.port}/sim")
+    uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
+
+
+def lan_ips():
+    """This PC's addresses, to print the link others on the LAN can open."""
+    import socket
+    ips = {i[4][0] for i in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET)}
+    return ["127.0.0.1", *sorted(ip for ip in ips if not ip.startswith("127."))]
 
 
 if __name__ == "__main__":
