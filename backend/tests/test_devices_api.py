@@ -87,6 +87,11 @@ class DevicesApiTest(unittest.TestCase):
         hd22 = out["stores"][1]
         self.assertEqual((hd22["name"], hd22["terminals"], hd22["on"], hd22["not_paired"]), ("HALDWANI", 2, 1, 1))
         self.assertEqual(out["totals"]["terminals"], 3)
+        self.assertEqual([(p["id"], p["state"], p["paired"]) for p in hd22["phones"]],
+                         [("HD22_MPOS1", S.ON, True), ("HD22_MPOS2", S.OFF, False)])
+        self.assertEqual(hd22["silent"], 1)  # paired, never checked in since the site started
+        self.cache.check_in("HD22_MPOS1", bill_open=False)
+        self.assertEqual(api.overview(HO)["stores"][1]["silent"], 0)
 
     def test_overview_store_user_sees_only_their_store(self):
         out = api.overview(APPROVER)

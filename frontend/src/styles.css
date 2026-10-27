@@ -425,3 +425,42 @@ button.dev-danger:hover:not(:disabled) { background: var(--critical); filter: br
 }
 .dev-expired { opacity: 0.35; text-decoration: line-through; }
 .dev-center { text-align: center; }
+
+/* mPOS Control (HO) */
+.dev-silent { --tone: var(--axis); }
+.dev-empty { --tone: transparent; }
+.dev-master {
+  display: flex; align-items: center; gap: 14px; padding: 6px 8px 6px 12px;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--surface);
+}
+.dev-master-off { border-color: var(--critical); background: color-mix(in srgb, var(--critical) 10%, var(--surface)); }
+.dev-tiles-6 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.dev-bulk {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface)); border-bottom: 1px solid var(--border);
+}
+.dev-pick { width: 34px; }
+.dev-row-off td { background: color-mix(in srgb, var(--critical) 7%, transparent); }
+.dev-why-cell { white-space: normal; min-width: 160px; max-width: 280px; }
+.dev-text-off { color: var(--critical); }
+.dev-text-drain { color: var(--s4); }
+.dev-dots { display: inline-flex; gap: 3px; flex-wrap: wrap; max-width: 140px; }
+.dev-sq {
+  display: inline-block; width: 14px; height: 14px; border-radius: 4px; background: var(--tone);
+  border: 1px solid color-mix(in srgb, var(--tone) 70%, var(--text));
+}
+.dev-sq.dev-empty { border: 1px dashed var(--muted); }
+.dev-sq-bill { box-shadow: inset 0 0 0 3px var(--tone), inset 0 0 0 7px var(--surface); }
+.dev-more { display: flex; justify-content: center; padding: 10px; }
+.dev-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 10px 12px; border-top: 1px solid var(--border); }
+.dev-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.dev-ho-actions { margin-top: 4px; align-items: center; }
+button.dev-danger-text { color: var(--critical); }
+.dev-settings { margin-top: 16px; }
+.dev-settings-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px 16px; align-items: start; }
+.dev-settings-grid label:not(.check) { display: flex; flex-direction: column; gap: 6px; color: var(--text-2); font-size: 12.5px; font-weight: 600; }
+.dev-check { padding-top: 26px; }
+@media (max-width: 900px) {
+  .dev-tiles-6 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dev-settings-grid { grid-template-columns: 1fr 1fr; }
+}

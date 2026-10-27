@@ -14,6 +14,7 @@ an open bill finish, and unpair / retire wait until no bill is open.
 Plain `def` endpoints: writes wait on Snowflake, so they run in worker threads, never blocking phones.
 """
 import re
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -163,14 +164,22 @@ def _terminal_view(t, st, billing, live):
             "version": t.version}
 
 
-def _store_view(code, s, terms, info):
-    counts = {"on": 0, "draining": 0, "off": 0, "not_paired": 0, "bills_open": 0}
-    for t, st, billing, _ in terms:
+def _silent(t, live, now):
+    """Paired, but no check-in for cache.GONE_SECONDS (lost, off, out of network) - or never since the
+    site started."""
+    return t.paired and (not live.last_seen or (now - live.last_seen).total_seconds() >= cache.GONE_SECONDS)
+
+
+def _store_view(code, s, terms, info, now=None):
+    now = now or datetime.now()
+    counts = {"on": 0, "draining": 0, "off": 0, "not_paired": 0, "bills_open": 0, "silent": 0}
+    for t, st, billing, live in terms:
         if not t.paired:
             counts["not_paired"] += 1
         else:
             counts[st.key.lower()] += 1
         counts["bills_open"] += billing
+        counts["silent"] += _silent(t, live, now)
     s = s or S.Store(code)
     return {"code": code, "name": info.get("name", ""), "region": info.get("region", ""),
             "state": info.get("state", ""), "ho_enabled": s.ho_enabled, "ho_reason": s.ho_reason,
@@ -191,11 +200,20 @@ def overview(user=Depends(devices_user)):
     by_store = {}
     for row in rows:
         by_store.setdefault(row[0].store_code, []).append(row)
-    out = [_store_view(c, stores.get(c), by_store.get(c, []), names.get(c, {})) for c in sorted(codes)]
+    now = datetime.now()
+    out = []
+    for c in sorted(codes):
+        terms = sorted(by_store.get(c, []), key=lambda r: r[0].seq)
+        view = _store_view(c, stores.get(c), terms, names.get(c, {}), now)
+        # one entry per phone, for the coloured squares on the HO screen
+        view["phones"] = [{"id": t.terminal_id, "state": st.key, "paired": t.paired, "bill": billing,
+                           "lock": t.immediate_lock, "veto": t.ho_veto, "silent": _silent(t, live, now),
+                           "message": st.text()} for t, st, billing, live in terms]
+        out.append(view)
     return {"is_ho": allowed is None, "loaded": cache.current.seq is not None,
             "global": {"enabled": glob.enabled, "reason": glob.reason, "version": glob.version},
             "totals": {k: sum(s[k] for s in out) for k in ("terminals", "on", "draining", "off", "not_paired",
-                                                           "bills_open")},
+                                                           "bills_open", "silent")},
             "stores": out}
 
 

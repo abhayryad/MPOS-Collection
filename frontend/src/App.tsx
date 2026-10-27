@@ -9,9 +9,10 @@ import { DailySalesSummary } from "./pages/reports/DailySalesSummary";
 import { HeadCashier } from "./pages/reports/HeadCashier";
 import { Admin } from "./pages/Admin";
 import { StoreDevices } from "./pages/devices/StoreDevices";
+import { MposControl } from "./pages/devices/MposControl";
 import { ChangePassword, Login } from "./pages/Login";
 
-const ROUTES = ["/downloads", "/reports/electronic-general", "/reports/sale-by-hour", "/reports/daily-sales-summary", "/reports/head-cashier", "/devices", "/admin"] as const;
+const ROUTES = ["/downloads", "/reports/electronic-general", "/reports/sale-by-hour", "/reports/daily-sales-summary", "/reports/head-cashier", "/devices", "/devices/control", "/admin"] as const;
 type Route = (typeof ROUTES)[number];
 
 /** Tabs and the role that opens each (null = admin only). Mirrors backend/mpos/auth/roles.py.
@@ -30,9 +31,21 @@ const NAV: (NavItem<Route> & { role: string | null })[] = [
       { route: "/reports/head-cashier", label: "Head Cashier" },
     ],
   },
-  { route: "/devices", label: "mPOS Devices", icon: "▣", role: "DEVICES" },
+  {
+    route: "/devices",
+    label: "mPOS Devices",
+    icon: "▣",
+    role: "DEVICES",
+    children: [
+      { route: "/devices", label: "Store Devices" },
+      { route: "/devices/control", label: "mPOS Control" }, // HO only, see Shell
+    ],
+  },
   { route: "/admin", label: "Admin", icon: "⚙", role: null },
 ];
+
+/** Sub-tabs only HO users (location HO, or admins) get. */
+const HO_ONLY = new Set<Route>(["/devices/control"]);
 
 /** Old links that now live elsewhere. */
 const REDIRECTS: Record<string, Route> = { "/reports": "/reports/electronic-general" };
@@ -96,7 +109,10 @@ export default function App() {
 }
 
 function Shell({ me, onLogout, onChangePassword }: { me: Me; onLogout: () => void; onChangePassword: () => void }) {
-  const nav = NAV.filter((n) => (n.role === null ? me.is_admin : me.is_admin || me.roles.includes(n.role)));
+  const ho = me.is_admin || me.locations.includes("HO");
+  const nav = NAV.filter((n) => (n.role === null ? me.is_admin : me.is_admin || me.roles.includes(n.role))).map((n) =>
+    n.children && !ho ? { ...n, children: n.children.filter((c) => !HO_ONLY.has(c.route)) } : n,
+  );
   const routes = nav.flatMap((n) => (n.children ? n.children.map((c) => c.route) : [n.route]));
   useEffect(() => {
     const target = REDIRECTS[window.location.hash.replace(/^#/, "")];
@@ -131,6 +147,7 @@ function Shell({ me, onLogout, onChangePassword }: { me: Me; onLogout: () => voi
           {route === "/reports/daily-sales-summary" && routes.includes(route) && <DailySalesSummary meta={meta} />}
           {route === "/reports/head-cashier" && routes.includes(route) && <HeadCashier meta={meta} />}
           {route === "/devices" && routes.includes(route) && <StoreDevices />}
+          {route === "/devices/control" && routes.includes(route) && <MposControl />}
           {route === "/admin" && me.is_admin && <Admin me={me} />}
         </div>
       </main>

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, ApiError, type DeviceEvent, type PairCode, type Terminal } from "../../lib/api";
+import { api, ApiError, DEVICE_STORE_KEY, type DeviceEvent, type PairCode, type StoreDevices as Store, type StoreSettings, type Terminal } from "../../lib/api";
 import { useAsync } from "../../lib/hooks";
 import { StoreSearch } from "../../components/StoreSearch";
 
@@ -10,7 +10,16 @@ const REFRESH_MS = 15_000;
 export function StoreDevices() {
   const overview = useAsync((signal) => api.devicesOverview(signal), []);
   const stores = overview.data?.stores ?? [];
-  const [picked, setPicked] = useState("");
+  const [picked, setPicked] = useState(() => {
+    try {
+      const code = sessionStorage.getItem(DEVICE_STORE_KEY) ?? ""; // set by mPOS Control's "Open"
+      sessionStorage.removeItem(DEVICE_STORE_KEY);
+      return code;
+    } catch {
+      return "";
+    }
+  });
+  const isHo = !!overview.data?.is_ho;
   const store = picked || stores.find((s) => s.terminals > 0)?.code || stores[0]?.code || "";
 
   const detail = useAsync((signal) => api.storeDevices(store, signal), [store], !!store);
@@ -74,6 +83,47 @@ export function StoreDevices() {
       run: go,
     });
   };
+  // HO only: block (veto), immediate lock, retire
+  const askBlock = (t: Terminal, kind: "veto" | "lock") => {
+    const on = kind === "veto" ? t.veto : t.lock;
+    const call = kind === "veto" ? api.veto : api.lock;
+    if (on)
+      return act(t.terminal_id, () => call(t.terminal_id, false, "", t.version), `${kind === "veto" ? "Block" : "Lock"} lifted on ${t.terminal_id}`);
+    setConfirm(
+      kind === "veto"
+        ? {
+            title: `Block ${name(t)}?`,
+            body: `HO's block: ${t.terminal_id} stops after any open bill, and the store cannot switch it back on until HO lifts the block.`,
+            reasonLabel: "Reason - shown on the phone",
+            reasonRequired: true,
+            action: "Block",
+            danger: true,
+            run: (reason) => act(t.terminal_id, () => api.veto(t.terminal_id, true, reason, t.version), `${t.terminal_id} blocked`),
+          }
+        : {
+            title: `Lock ${name(t)} now?`,
+            body: `For a lost or stolen phone. ${t.terminal_id} stops at once${t.bill_open ? " - even the bill open on it now" : ""}. It stays locked until HO unlocks it, even if a new phone is paired.`,
+            reasonLabel: "Reason - shown on the phone",
+            reasonRequired: true,
+            action: "Lock now",
+            danger: true,
+            run: (reason) => act(t.terminal_id, () => api.lock(t.terminal_id, true, reason, t.version), `${t.terminal_id} locked`),
+          },
+    );
+  };
+  const askRetire = (t: Terminal) =>
+    setConfirm({
+      title: `Retire ${t.terminal_id}?`,
+      body: t.bill_open
+        ? `A bill is open on ${t.terminal_id} - you can retire it once it is finished.`
+        : `For good: its phone stops, the number ${name(t)} is never used again, and the store gets a free slot for a new terminal.`,
+      reasonLabel: "Reason (optional, kept in history)",
+      action: "Retire",
+      danger: true,
+      disabled: t.bill_open,
+      run: (reason) => act(t.terminal_id, () => api.retire(t.terminal_id, reason), `${t.terminal_id} retired`),
+    });
+
   const askUnpair = (t: Terminal) =>
     setConfirm({
       title: `Unpair the phone from ${name(t)}?`,
@@ -232,6 +282,20 @@ export function StoreDevices() {
                               </button>
                             )}
                           </span>
+                          {isHo && (
+                            <span className="row-actions dev-ho-actions">
+                              <span className="hint">HO:</span>
+                              <button type="button" disabled={busy === t.terminal_id} onClick={() => askBlock(t, "veto")}>
+                                {t.veto ? "Lift block" : "Block"}
+                              </button>
+                              <button type="button" className={t.lock ? undefined : "dev-danger-text"} disabled={busy === t.terminal_id} onClick={() => askBlock(t, "lock")}>
+                                {t.lock ? "Unlock" : "Lock now"}
+                              </button>
+                              <button type="button" disabled={busy === t.terminal_id} onClick={() => askRetire(t)}>
+                                Retire
+                              </button>
+                            </span>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -240,6 +304,8 @@ export function StoreDevices() {
               </div>
             )}
           </section>
+
+          {isHo && <HoSettings store={s} onSave={(change) => act("settings", () => api.storeSettings(s.code, change, s.version), `${s.code} settings saved`)} />}
 
           <History events={history.data} error={history.error} />
         </>
@@ -282,7 +348,7 @@ function Status({ t }: { t: Terminal }) {
   );
 }
 
-function Tile({ label, value, tone, note }: { label: string; value: number; tone?: string; note?: string }) {
+export function Tile({ label, value, tone, note }: { label: string; value: number; tone?: string; note?: string }) {
   return (
     <div className="tile">
       <div className="tile-label">
@@ -295,7 +361,7 @@ function Tile({ label, value, tone, note }: { label: string; value: number; tone
   );
 }
 
-function Switch({ on, disabled, label, onClick }: { on: boolean; disabled: boolean; label: string; onClick: () => void }) {
+export function Switch({ on, disabled, label, onClick }: { on: boolean; disabled: boolean; label: string; onClick: () => void }) {
   return (
     <button type="button" role="switch" aria-checked={on} aria-label={label} className="dev-switch" disabled={disabled} onClick={onClick}>
       <span className="dev-knob" aria-hidden="true" />
@@ -311,22 +377,24 @@ function Ago({ iso }: { iso: string | null }) {
   return <span className={secs > 120 ? "dev-stale" : undefined} title={new Date(iso).toLocaleString()}>{text}</span>;
 }
 
-type Confirm = {
+export type Confirm = {
   title: string;
   body: string;
   action: string;
   reasonLabel?: string;
+  reasonRequired?: boolean; // the reason is shown on the phones, so it must be given
   danger?: boolean;
   disabled?: boolean;
   run: (reason: string) => void;
 };
 
-function ConfirmDialog({ title, body, action, reasonLabel, danger, disabled, onCancel, onConfirm }: Confirm & {
+export function ConfirmDialog({ title, body, action, reasonLabel, reasonRequired, danger, disabled, onCancel, onConfirm }: Confirm & {
   onCancel: () => void;
   onConfirm: (reason: string) => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const [reason, setReason] = useState("");
+  const [missing, setMissing] = useState(false);
   useEffect(() => ref.current?.showModal(), []);
   return (
     <dialog ref={ref} className="form-dialog" onCancel={onCancel} aria-label={title}>
@@ -334,6 +402,7 @@ function ConfirmDialog({ title, body, action, reasonLabel, danger, disabled, onC
         className="dialog-form"
         onSubmit={(e) => {
           e.preventDefault();
+          if (reasonRequired && !reason.trim()) return setMissing(true);
           onConfirm(reason.trim());
         }}
       >
@@ -342,7 +411,14 @@ function ConfirmDialog({ title, body, action, reasonLabel, danger, disabled, onC
         {reasonLabel && !disabled && (
           <label>
             {reasonLabel}
-            <input value={reason} maxLength={500} onChange={(e) => setReason(e.target.value)} autoFocus />
+            <input
+              value={reason}
+              maxLength={500}
+              onChange={(e) => (setReason(e.target.value), setMissing(false))}
+              autoFocus
+              aria-invalid={missing}
+            />
+            {missing && <span className="field-error">Give a reason - the cashier sees it on the phone</span>}
           </label>
         )}
         <div className="auth-actions">
@@ -407,8 +483,66 @@ const EVENT_TEXT: Record<string, string> = {
   DAY_CONTROL_SET: "Open day setting changed", DAY_CLOSE_SET: "Day close time changed",
 };
 
+/** HO's settings for the store: who approves, how many terminals, and Open day. */
+function HoSettings({ store, onSave }: { store: Store; onSave: (change: StoreSettings) => void }) {
+  const [approver, setApprover] = useState(store.approver ?? "");
+  const [max, setMax] = useState(store.max_mpos);
+  const [dayControl, setDayControl] = useState(store.day_control);
+  const [close, setClose] = useState(store.day_close_time ?? "");
+  useEffect(() => {
+    setApprover(store.approver ?? "");
+    setMax(store.max_mpos);
+    setDayControl(store.day_control);
+    setClose(store.day_close_time ?? "");
+  }, [store.code, store.version]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const change: StoreSettings = {};
+  if (approver.trim().toLowerCase() !== (store.approver ?? "")) change.approver = approver.trim();
+  if (max !== store.max_mpos) change.max_mpos = max;
+  if (dayControl !== store.day_control) change.day_control = dayControl;
+  if (close !== (store.day_close_time ?? "")) change.day_close_time = close;
+  const dirty = Object.keys(change).length > 0;
+
+  return (
+    <section className="card dev-settings">
+      <div className="card-head">
+        <div>
+          <h2>Store settings (HO)</h2>
+          <div className="hint">Only HO sees and changes these</div>
+        </div>
+        <button type="button" className="primary" disabled={!dirty} onClick={() => onSave(change)}>
+          Save
+        </button>
+      </div>
+      <div className="dev-settings-grid">
+        <label>
+          mPOS approver
+          <input value={approver} placeholder="Anyone at the store" onChange={(e) => setApprover(e.target.value)} />
+          <span className="field-hint">Login name. Empty = any store user with the role</span>
+        </label>
+        <label>
+          Terminal limit
+          <input type="number" min={0} max={20} value={max} onChange={(e) => setMax(Math.max(0, Math.min(20, +e.target.value || 0)))} />
+          <span className="field-hint">Active terminals allowed (default 5)</span>
+        </label>
+        <label className="check dev-check">
+          <input type="checkbox" checked={dayControl} onChange={(e) => setDayControl(e.target.checked)} />
+          Uses Open day
+        </label>
+        <label>
+          Day closes at
+          <input type="time" value={close} disabled={!dayControl} onChange={(e) => setClose(e.target.value)} />
+          <span className="field-hint">Empty = closed by hand only</span>
+        </label>
+      </div>
+    </section>
+  );
+}
+
 /** Events whose new value says something the event name does not (e.g. the new limit). */
 const NEW_SHOWN = new Set(["TERMINAL_ADDED", "APPROVER_SET", "MAX_SET", "DAY_CLOSE_SET", "DAY_CONTROL_SET"]);
+
+const onOff = (v: string | null) => (v?.toLowerCase() === "true" ? "on" : v?.toLowerCase() === "false" ? "off" : v);
 
 function History({ events, error }: { events: DeviceEvent[] | null; error: string | null }) {
   return (
@@ -438,7 +572,7 @@ function History({ events, error }: { events: DeviceEvent[] | null; error: strin
                   <td className="strong">{EVENT_TEXT[e.event] ?? e.event}</td>
                   <td>{e.target ?? "—"}</td>
                   <td>{e.actor ?? "—"}</td>
-                  <td className="detail-cell">{[e.reason, NEW_SHOWN.has(e.event) ? e.new : null].filter(Boolean).join(" · ") || "—"}</td>
+                  <td className="detail-cell">{[e.reason, NEW_SHOWN.has(e.event) ? onOff(e.new) : null].filter(Boolean).join(" · ") || "—"}</td>
                 </tr>
               ))}
             </tbody>

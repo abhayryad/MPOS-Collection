@@ -142,6 +142,18 @@ export interface DeviceCounts {
   off: number;
   not_paired: number;
   bills_open: number;
+  silent: number; // paired but no check-in for 2 minutes
+}
+
+export interface PhoneDot {
+  id: string;
+  state: DeviceState;
+  paired: boolean;
+  bill: boolean;
+  lock: boolean;
+  veto: boolean;
+  silent: boolean;
+  message: string;
 }
 
 export interface DeviceStore extends DeviceCounts {
@@ -157,6 +169,7 @@ export interface DeviceStore extends DeviceCounts {
   approver: string | null;
   max_mpos: number;
   version: number;
+  phones?: PhoneDot[]; // overview only
 }
 
 export interface DevicesOverview {
@@ -199,6 +212,19 @@ export interface PairCode {
   code: string;
   valid_minutes: number;
   qr: { url: string; terminal: string; code: string };
+}
+
+export interface Reach {
+  phones: number;
+  billing_now: number;
+  stores: number;
+}
+
+export interface StoreSettings {
+  max_mpos?: number;
+  approver?: string;
+  day_control?: boolean;
+  day_close_time?: string;
 }
 
 export interface DeviceEvent {
@@ -323,7 +349,28 @@ export const api = {
     request<Terminal>("POST", `/api/devices/terminals/${encodeURIComponent(tid)}/unpair`, { reason }),
   storeDay: (store: string, open: boolean) =>
     request<StoreDevices>("POST", `/api/devices/stores/${encodeURIComponent(store)}/day`, { open }),
+
+  // HO only
+  preview: (level: "global" | "stores" | "terminal", targets: string[] | null) =>
+    request<Reach>("POST", "/api/devices/preview", { level, targets }),
+  switchGlobal: (on: boolean, reason: string, version: number) =>
+    request<{ enabled: boolean; reason: string }>("POST", "/api/devices/global", { on, reason, version }),
+  switchStores: (stores: string[] | null, on: boolean, reason: string, version?: number) =>
+    request<{ stores_changed: number }>("POST", "/api/devices/stores/switch", { stores, on, reason, version }),
+  addTerminals: (stores: string[] | null, count: number) =>
+    request<{ added: string[]; at_limit: string[] }>("POST", "/api/devices/add", { stores, count }),
+  veto: (tid: string, active: boolean, reason: string, version: number) =>
+    request<Terminal>("POST", `/api/devices/terminals/${encodeURIComponent(tid)}/veto`, { active, reason, version }),
+  lock: (tid: string, active: boolean, reason: string, version: number) =>
+    request<Terminal>("POST", `/api/devices/terminals/${encodeURIComponent(tid)}/lock`, { active, reason, version }),
+  retire: (tid: string, reason: string) =>
+    request<{ retired: string }>("POST", `/api/devices/terminals/${encodeURIComponent(tid)}/retire`, { reason }),
+  storeSettings: (store: string, settings: StoreSettings, version: number) =>
+    request<StoreDevices>("POST", `/api/devices/stores/${encodeURIComponent(store)}/settings`, { ...settings, version }),
 };
+
+/** The store Store Devices opens on - set by the HO screen's "Open" before it switches page. */
+export const DEVICE_STORE_KEY = "mpos-devices-store";
 
 /** Trigger a browser download for a same-origin URL. */
 export function download(url: string) {
