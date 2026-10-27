@@ -5,6 +5,8 @@
     python -m mpos export-slips --from 2026-09-01 --to 2026-09-28 --store HD22 --kinds SR
     python -m mpos check-db                              test the connection, show table sizes
     python -m mpos payment-mop                           STORE / AMOUNTTENDERED / MOP_TYPE listing
+    python -m mpos add-mpos HD22 --count 2               new mPOS terminals + pairing codes
+    python -m mpos pair-code HD22_MPOS1                  new pairing code (re-pair a phone)
 
 (needs backend/ on the path: `set PYTHONPATH=backend` first, or use run_cli.bat)
 
@@ -84,6 +86,34 @@ def payment_mop(_args):
     print(f"Done. {len(df)} rows written to {out_path}")
 
 
+def add_mpos(args):
+    """Create mPOS terminals for a store and print a pairing code for each (until the portal screens exist)."""
+    from . import stores
+    from .devices import store as devices
+
+    code = args.store.strip().upper()
+    if code not in {s["code"] for s in stores.store_master()}:
+        sys.exit(f"{code} is not an active store in the store master.")
+    for _ in range(args.count):
+        try:
+            tid = devices.add_terminal(code, actor="cli")
+        except devices.LimitReached as e:
+            sys.exit(str(e))
+        print(f"{tid}  pairing code {devices.issue_pair_code(tid, actor='cli')}  (one use, 15 minutes)")
+
+
+def pair_code(args):
+    """A new pairing code for an existing terminal. The phone paired to it now keeps billing until a new
+    phone pairs with this code."""
+    from .devices import store as devices
+
+    tid = args.terminal.strip().upper()
+    try:
+        print(f"{tid}  pairing code {devices.issue_pair_code(tid, actor='cli')}  (one use, 15 minutes)")
+    except ValueError as e:
+        sys.exit(str(e))
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="python -m mpos", description="MPOS Collection command-line tools")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -98,6 +128,15 @@ def main(argv=None):
 
     sub.add_parser("check-db", help="test the database connection").set_defaults(func=check_db)
     sub.add_parser("payment-mop", help="payment listing with totals per store and MOP").set_defaults(func=payment_mop)
+
+    p = sub.add_parser("add-mpos", help="create mPOS terminals for a store and print pairing codes")
+    p.add_argument("store", help="store code, e.g. HD22")
+    p.add_argument("--count", type=int, default=1, help="how many terminals (default 1)")
+    p.set_defaults(func=add_mpos)
+
+    p = sub.add_parser("pair-code", help="new pairing code for an mPOS terminal (re-pair a phone)")
+    p.add_argument("terminal", help="terminal ID, e.g. HD22_MPOS1")
+    p.set_defaults(func=pair_code)
 
     args = parser.parse_args(argv)
     args.func(args)

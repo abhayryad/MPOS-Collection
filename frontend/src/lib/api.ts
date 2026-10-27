@@ -131,6 +131,115 @@ export interface NewUser {
   is_admin: boolean;
 }
 
+// ---- mPOS device control (/api/devices)
+
+export type DeviceState = "ON" | "DRAINING" | "OFF";
+
+export interface DeviceCounts {
+  terminals: number;
+  on: number;
+  draining: number;
+  off: number;
+  not_paired: number;
+  bills_open: number;
+  silent: number; // paired but no check-in for 2 minutes
+}
+
+export interface PhoneDot {
+  id: string;
+  state: DeviceState;
+  paired: boolean;
+  bill: boolean;
+  lock: boolean;
+  veto: boolean;
+  silent: boolean;
+  message: string;
+}
+
+export interface DeviceStore extends DeviceCounts {
+  code: string;
+  name: string;
+  region: string;
+  state: string;
+  ho_enabled: boolean;
+  ho_reason: string;
+  day_control: boolean;
+  day_open: boolean;
+  day_close_time: string | null;
+  approver: string | null;
+  max_mpos: number;
+  version: number;
+  phones?: PhoneDot[]; // overview only
+}
+
+export interface DevicesOverview {
+  is_ho: boolean;
+  loaded: boolean;
+  global: { enabled: boolean; reason: string; version: number };
+  totals: DeviceCounts;
+  stores: DeviceStore[];
+}
+
+export interface Terminal {
+  terminal_id: string;
+  store: string;
+  seq: number;
+  state: DeviceState;
+  reason: string | null;
+  message: string;
+  paired: boolean;
+  bill_open: boolean;
+  store_enabled: boolean;
+  veto: boolean;
+  veto_reason: string;
+  lock: boolean;
+  lock_reason: string;
+  phone: string | null;
+  app_version: string | null;
+  paired_at: string | null;
+  last_seen: string | null;
+  version: number;
+}
+
+export interface StoreDevices extends DeviceStore {
+  terminal_list: Terminal[];
+  global: { enabled: boolean; reason: string };
+  can_change: boolean;
+}
+
+export interface PairCode {
+  terminal_id: string;
+  code: string;
+  valid_minutes: number;
+  qr: { url: string; terminal: string; code: string };
+}
+
+export interface Reach {
+  phones: number;
+  billing_now: number;
+  stores: number;
+}
+
+export interface StoreSettings {
+  max_mpos?: number;
+  approver?: string;
+  day_control?: boolean;
+  day_close_time?: string;
+}
+
+export interface DeviceEvent {
+  id: number;
+  time: string | null;
+  actor: string | null;
+  level: string;
+  target: string | null;
+  event: string;
+  old: string | null;
+  new: string | null;
+  reason: string | null;
+  affected: number;
+}
+
 /** Fired when the server says the session is gone (expired, logged out, deactivated). */
 export const LOGGED_OUT_EVENT = "mpos:logged-out";
 
@@ -226,7 +335,42 @@ export const api = {
   headCashierXlsxUrl: (date: string, store: string) => `/api/reports/head-cashier.xlsx?${storeDay(date, store)}`,
 
   zipUrl: (f: Filters, kinds: Kind[]) => `/api/slips.zip?${query(f)}&kinds=${kinds.join("")}`,
+
+  // mPOS devices
+  devicesOverview: (signal?: AbortSignal) => getJson<DevicesOverview>("/api/devices/overview", signal),
+  storeDevices: (store: string, signal?: AbortSignal) =>
+    getJson<StoreDevices>(`/api/devices/stores/${encodeURIComponent(store)}`, signal),
+  deviceHistory: (store: string, signal?: AbortSignal) =>
+    getJson<DeviceEvent[]>(`/api/devices/history?store_code=${encodeURIComponent(store)}&limit=30`, signal),
+  switchTerminal: (tid: string, on: boolean, reason: string, version: number) =>
+    request<Terminal>("POST", `/api/devices/terminals/${encodeURIComponent(tid)}/switch`, { on, reason, version }),
+  pairCode: (tid: string) => request<PairCode>("POST", `/api/devices/terminals/${encodeURIComponent(tid)}/pair-code`),
+  unpair: (tid: string, reason: string) =>
+    request<Terminal>("POST", `/api/devices/terminals/${encodeURIComponent(tid)}/unpair`, { reason }),
+  storeDay: (store: string, open: boolean) =>
+    request<StoreDevices>("POST", `/api/devices/stores/${encodeURIComponent(store)}/day`, { open }),
+
+  // HO only
+  preview: (level: "global" | "stores" | "terminal", targets: string[] | null) =>
+    request<Reach>("POST", "/api/devices/preview", { level, targets }),
+  switchGlobal: (on: boolean, reason: string, version: number) =>
+    request<{ enabled: boolean; reason: string }>("POST", "/api/devices/global", { on, reason, version }),
+  switchStores: (stores: string[] | null, on: boolean, reason: string, version?: number) =>
+    request<{ stores_changed: number }>("POST", "/api/devices/stores/switch", { stores, on, reason, version }),
+  addTerminals: (stores: string[] | null, count: number) =>
+    request<{ added: string[]; at_limit: string[] }>("POST", "/api/devices/add", { stores, count }),
+  veto: (tid: string, active: boolean, reason: string, version: number) =>
+    request<Terminal>("POST", `/api/devices/terminals/${encodeURIComponent(tid)}/veto`, { active, reason, version }),
+  lock: (tid: string, active: boolean, reason: string, version: number) =>
+    request<Terminal>("POST", `/api/devices/terminals/${encodeURIComponent(tid)}/lock`, { active, reason, version }),
+  retire: (tid: string, reason: string) =>
+    request<{ retired: string }>("POST", `/api/devices/terminals/${encodeURIComponent(tid)}/retire`, { reason }),
+  storeSettings: (store: string, settings: StoreSettings, version: number) =>
+    request<StoreDevices>("POST", `/api/devices/stores/${encodeURIComponent(store)}/settings`, { ...settings, version }),
 };
+
+/** The store Store Devices opens on - set by the HO screen's "Open" before it switches page. */
+export const DEVICE_STORE_KEY = "mpos-devices-store";
 
 /** Trigger a browser download for a same-origin URL. */
 export function download(url: string) {
