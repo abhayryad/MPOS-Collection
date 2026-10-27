@@ -9,7 +9,7 @@ from starlette.requests import Request
 
 from mpos.api import device_api as api
 from mpos.devices import cache as C
-from mpos.devices import pairing, store
+from mpos.devices import health, pairing, store
 from mpos.devices import state as S
 
 TOKEN = "phone-token-1"
@@ -39,9 +39,10 @@ class PhoneApiTest(unittest.TestCase):
             self.addCleanup(p.stop)
         self.cache = C.Cache()
         self.cache.load()
-        p = mock.patch.object(api.cache, "current", self.cache)
-        p.start()
-        self.addCleanup(p.stop)
+        self.beats = health.Buffer()
+        for p in (mock.patch.object(api.cache, "current", self.cache), mock.patch.object(api.health, "buffer", self.beats)):
+            p.start()
+            self.addCleanup(p.stop)
         self.t = self.cache.terminals["HD22_MPOS1"]
 
     def change(self, **kw):
@@ -109,6 +110,26 @@ class PhoneApiTest(unittest.TestCase):
         self.assertEqual(tasks.tasks, [])
         live = self.cache.live["HD22_MPOS1"]
         self.assertEqual((live.bill_open, live.app_version, live.ip), (True, "2.4.0", "10.0.0.5"))
+        run(api.heartbeat(api.Heartbeat(bill_open=False, serial="SN-1", app_version="2.4.0", network="wifi",
+                                        battery_pct=81), request(), BackgroundTasks(), self.t))
+        first, second = self.beats.take()  # both check-ins wait to go to Snowflake
+        self.assertEqual(first[:2] + first[3:], ("HD22_MPOS1", "HD22", True, S.ON, "2.4.0", "SN-1", "10.0.0.5", None, None))
+        self.assertEqual(second[-2:], ("wifi", 81))
+        self.assertEqual(second[2], live.last_seen)  # same moment in memory and in Snowflake
+        self.assertLessEqual(first[2], second[2])
+
+    def test_heartbeat_row_records_lock_given(self):
+        run(api.heartbeat(api.Heartbeat(bill_open=False, serial="SN-999", app_version="2.4.0"),
+                          request(), BackgroundTasks(), self.t))
+        self.assertEqual(self.beats.take()[0][4], S.OFF)  # STATE_GIVEN = what the phone was told
+
+    def test_stop_flushes_waiting_check_ins(self):
+        stops = [mock.Mock(), mock.Mock()]
+        with mock.patch.object(api.health, "flush") as flush:
+            api.stop(stops)
+        for event in stops:
+            event.set.assert_called_once()
+        flush.assert_called_once_with(self.beats)
 
     def test_token_from_another_phone_locks_at_once(self):
         tasks = BackgroundTasks()

@@ -248,6 +248,29 @@ def redeem_pair_code(terminal_id, code, *, serial, app_version, ip=None):
     return token
 
 
+# ---------------------------------------------------------------- phone check-ins
+
+HEARTBEAT_COLUMNS = ("TERMINAL_ID", "STORE_CODE", "SEEN_AT", "BILL_OPEN", "STATE_GIVEN", "APP_VERSION",
+                     "SERIAL", "IP_ADDRESS", "NETWORK", "BATTERY_PCT")
+
+
+def insert_heartbeats(rows):
+    """Append check-ins (tuples in HEARTBEAT_COLUMNS order) in ONE statement. Keep a call under about
+    6,000 rows: past 65,280 bound values the connector would stage the rows in a temporary file."""
+    if rows:
+        _run(f"INSERT INTO {HEARTBEATS} ({', '.join(HEARTBEAT_COLUMNS)}) "
+             f"VALUES ({', '.join('?' * len(HEARTBEAT_COLUMNS))})", rows, fetch=False, many=True)
+
+
+def update_last_seen(since):
+    """MPOS_TERMINALS.LAST_SEEN_AT = each terminal's latest check-in since `since`. Not a switch change:
+    VERSION and CHANGE_SEQ stay as they are, so no running site reloads for it."""
+    _run(f"UPDATE {TERMINALS} t SET LAST_SEEN_AT = h.SEEN FROM "
+         f"(SELECT TERMINAL_ID, MAX(SEEN_AT) AS SEEN FROM {HEARTBEATS} WHERE SEEN_AT >= ? GROUP BY TERMINAL_ID) h "
+         f"WHERE t.TERMINAL_ID = h.TERMINAL_ID AND (t.LAST_SEEN_AT IS NULL OR t.LAST_SEEN_AT < h.SEEN)",
+         [since], fetch=False)
+
+
 # ---------------------------------------------------------------- history
 
 def record(event, level, *, actor, target=None, old=None, new=None, reason=None, affected=1, ip=None):

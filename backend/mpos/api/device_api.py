@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from ..auth.store import StoreUnavailable
-from ..devices import cache, pairing, store
+from ..devices import cache, health, pairing, store
 from ..devices import state as S
 
 router = APIRouter(prefix="/api/device")
@@ -47,6 +47,8 @@ class Heartbeat(BaseModel):
     bill_open: bool
     serial: str = Field(max_length=100)
     app_version: str = Field(max_length=30)
+    network: str | None = Field(None, max_length=20)        # wifi / mobile, if the app can tell
+    battery_pct: int | None = Field(None, ge=0, le=100)
 
 
 def _ip(request):
@@ -104,12 +106,14 @@ async def bill_end(body: BillEnd, request: Request, tasks: BackgroundTasks, t: S
 
 @router.post("/heartbeat")
 async def heartbeat(body: Heartbeat, request: Request, tasks: BackgroundTasks, t: S.Terminal = Depends(device)):
-    ip = _ip(request)
+    ip, now = _ip(request), datetime.now()
     st = cache.current.check_in(t.terminal_id, bill_open=body.bill_open, serial=body.serial,
-                                app_version=body.app_version, ip=ip)
+                                app_version=body.app_version, ip=ip, now=now)
     if t.device_serial and body.serial != t.device_serial and not t.immediate_lock:
         st = cache.current.lock_here(t.terminal_id, COPIED_PHONE)
         tasks.add_task(_save_lock, t.terminal_id, f"{COPIED_PHONE} (serial {body.serial})", ip)
+    health.buffer.add((t.terminal_id, t.store_code, now, body.bill_open, st.key, body.app_version,
+                       body.serial, ip, body.network, body.battery_pct))
     return _answer(t.terminal_id, st)
 
 
@@ -121,6 +125,14 @@ async def _save_lock(terminal_id, reason, ip):
 
 
 def start():
-    """At site startup: load every terminal's switches in the background and keep them fresh. Phones
-    get 503 until the first load succeeds; if Snowflake is down the refresher keeps trying."""
-    return cache.current.start_refresher()
+    """At site startup: load every terminal's switches in the background and keep them fresh (phones
+    get 503 until the first load succeeds), and write check-ins to Snowflake every 5 minutes.
+    Returns the stop events for stop()."""
+    return [cache.current.start_refresher(), health.start_flusher(health.buffer)]
+
+
+def stop(stops):
+    """At site shutdown: stop the background threads and write the check-ins still waiting."""
+    for event in stops:
+        event.set()
+    health.flush(health.buffer)

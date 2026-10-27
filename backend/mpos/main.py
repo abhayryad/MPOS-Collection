@@ -17,9 +17,9 @@ from .config import settings
 
 @asynccontextmanager
 async def lifespan(_app):
-    stop = device_api.start()  # mPOS switches into memory, refreshed in the background
+    stops = device_api.start()  # mPOS switches into memory; phone check-ins out to Snowflake
     yield
-    stop.set()
+    device_api.stop(stops)
 
 
 app = FastAPI(title="MPOS Collection", lifespan=lifespan)
