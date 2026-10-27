@@ -55,7 +55,7 @@ def _credentials():
                            "(or SNOWFLAKE_PASSWORD) in .env")
 
 
-def _connect():
+def _connect(query_tag="mpos-collection-auth"):
     if not (settings.sf_account and settings.sf_user):
         raise StoreUnavailable("Snowflake is not configured - set SNOWFLAKE_ACCOUNT and SNOWFLAKE_USER in .env")
     creds = _credentials()
@@ -65,7 +65,7 @@ def _connect():
             role=settings.sf_role or None, warehouse=settings.sf_warehouse or None,
             database=settings.sf_database, schema=settings.sf_schema,
             login_timeout=20, network_timeout=30, client_session_keep_alive=True,
-            session_parameters={"TIMEZONE": "Asia/Kolkata", "QUERY_TAG": "mpos-collection-auth"},
+            session_parameters={"TIMEZONE": "Asia/Kolkata", "QUERY_TAG": query_tag},
         )
     except snowflake.connector.errors.Error as e:
         raise StoreUnavailable(f"Could not connect to Snowflake: {e.msg if hasattr(e, 'msg') else e}")
