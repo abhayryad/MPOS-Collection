@@ -370,7 +370,7 @@ export function Switch({ on, disabled, label, onClick }: { on: boolean; disabled
   );
 }
 
-function Ago({ iso }: { iso: string | null }) {
+export function Ago({ iso }: { iso: string | null }) {
   if (!iso) return <span className="muted">Never</span>;
   const secs = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
   const text = secs < 60 ? `${secs} s ago` : secs < 3600 ? `${Math.round(secs / 60)} min ago` : new Date(iso).toLocaleString();
@@ -434,7 +434,7 @@ export function ConfirmDialog({ title, body, action, reasonLabel, reasonRequired
   );
 }
 
-function PairDialog({ code, onClose }: { code: PairCode; onClose: () => void }) {
+export function PairDialog({ code, onClose }: { code: PairCode; onClose: () => void }) {
   const ref = useRef<HTMLDialogElement>(null);
   const [until] = useState(() => Date.now() + code.valid_minutes * 60_000);
   const [now, setNow] = useState(Date.now());
