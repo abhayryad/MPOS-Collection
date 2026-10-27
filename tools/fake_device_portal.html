@@ -67,11 +67,12 @@
 
   /* store rows */
   .stores { max-height: calc(100vh - 290px); min-height: 320px; overflow: auto; }
-  .srow { display: grid; grid-template-columns: 130px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+  .srow { display: grid; grid-template-columns: 180px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--line); }
   .srow:hover { background: var(--soft); }
   .srow.hooff { background: var(--off-bg); }
   .scode { font-weight: 600; }
   .ssub { font-size: 12px; color: var(--muted); }
+  .sname { font-size: 12px; color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 170px; }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; }
   .chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px 4px 7px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); cursor: pointer; font-size: 12px; font-weight: 500; }
   .chip:hover { border-color: var(--muted); }
@@ -159,7 +160,7 @@
     <section class="panel">
       <div class="panel-h">
         <h2>Stores</h2>
-        <input class="search" id="q" placeholder="Search store, e.g. FK012" autocomplete="off">
+        <input class="search" id="q" placeholder="Search store code, name, region or state" autocomplete="off">
         <span class="count" id="count"></span>
       </div>
       <div class="stores" id="stores"></div>
@@ -192,7 +193,7 @@
       </div>
       <div class="field" id="storeField">
         <label class="t" for="addStore">Store</label>
-        <input class="search" id="addStore" list="storeList" placeholder="e.g. FK012" autocomplete="off" style="width:100%">
+        <input class="search" id="addStore" list="storeList" placeholder="Store code" autocomplete="off" style="width:100%">
         <datalist id="storeList"></datalist>
         <div class="ssub" id="storeNow" style="margin-top:6px"></div>
       </div>
@@ -299,12 +300,14 @@ function render() {
 
   // stores
   const q = $("q").value.trim().toUpperCase();
+  const info = c => data.stores[c] || {};
+  const hit = c => { const i = info(c); return [c, i.name, i.zone, i.region, i.state].some(v => (v || "").toUpperCase().includes(q)); };
   const off = new Set(data.stores_off);
   const match = tid => { const p = data.phones[tid];
     return !filter || (filter === "BILL" ? p.bill : kind(p) === filter); };
   const rows = [];
   for (const [code, tids] of stores) {
-    if (q && !code.includes(q)) continue;
+    if (q && !hit(code)) continue;
     if (filter && !tids.some(match)) continue;
     rows.push([code, tids]);
   }
@@ -313,7 +316,7 @@ function render() {
     const isOff = off.has(code);
     const allowed = tids.filter(t => data.phones[t].state === "ON").length;
     return `<div class="srow${isOff ? " hooff" : ""}">
-      <div><div class="scode">${code}</div><div class="ssub">${isOff ? "Disabled by HO" : `${allowed} of ${tids.length} billing`}</div></div>
+      <div><div class="scode">${code}</div><div class="sname" title="${esc([info(code).name, info(code).region, info(code).state].filter(Boolean).join(" · "))}">${esc(info(code).name)}</div><div class="ssub">${isOff ? "Disabled by HO" : `${allowed} of ${tids.length} billing`}</div></div>
       <div class="chips">${tids.map(tid => { const p = data.phones[tid], k = kind(p);
         return `<button class="chip${sel === tid ? " sel" : ""}${k === "UNPAIRED" ? " unpaired" : ""}" data-t="${tid}" title="${esc(p.message)}">
           <span class="dot" style="background:${LOOK[k].c}"></span>${tid.split("_")[1]}${p.bill ? '<span class="b">BILL</span>' : ""}</button>`; }).join("")}</div>
@@ -338,7 +341,7 @@ function renderPhone() {
       <button class="sw${danger ? " danger" : ""}" role="switch" aria-checked="${on}" data-level="${level}" aria-label="${title}"></button></div>`;
   $("phonebox").innerHTML = `
     <div class="phone"><div class="screen" style="background:${L.screen}">
-      <div class="tid">${sel}</div>
+      <div class="tid">${sel}<br>${esc((data.stores[p.store] || {}).name || "")}</div>
       <div class="icon">${ICON[k]}</div>
       <div class="big">${L.big}</div>
       <div class="msg">${msg}</div>
@@ -400,7 +403,7 @@ const addAll = () => dlg.querySelector('input[name="where"]:checked').value === 
 function openAdd(code) {
   if (!data) return;
   const codes = storeCodes();
-  $("storeList").innerHTML = codes.map(c => `<option value="${c}">`).join("");
+  $("storeList").innerHTML = codes.map(c => `<option value="${c}">${esc((data.stores[c] || {}).name || "")}</option>`).join("");
   $("allCount").textContent = `All ${codes.length} stores at once`;
   dlg.querySelector('input[value="one"]').checked = true;
   $("addStore").value = code || (sel && data.phones[sel] ? data.phones[sel].store : "");
@@ -414,7 +417,8 @@ function syncAdd() {
   $("storeField").style.display = all ? "none" : "";
   const code = $("addStore").value.trim().toUpperCase();
   const tids = Object.keys(data.phones).filter(t => data.phones[t].store === code);
-  $("storeNow").textContent = !code ? "" : tids.length ? `${code} has ${tids.length} now: ${tids.map(t => t.split("_")[1]).join(", ")}` : "No such store";
+  const nm = (data.stores[code] || {}).name;
+  $("storeNow").textContent = !code ? "" : tids.length ? `${nm ? nm + " · " : ""}${code} has ${tids.length} now: ${tids.map(t => t.split("_")[1]).join(", ")}` : "No such store";
   $("addGo").textContent = all ? `Add ${$("addCount").value} to every store` : `Add ${$("addCount").value} to ${code || "store"}`;
 }
 dlg.addEventListener("input", syncAdd);
