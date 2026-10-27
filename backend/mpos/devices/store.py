@@ -172,7 +172,8 @@ def add_terminal(store_code, actor, ip=None):
         raise ValueError("Store code is required")
     with _transaction() as cur:
         cur.execute(f"MERGE INTO {STORES} s USING (SELECT ? AS STORE_CODE) n ON s.STORE_CODE = n.STORE_CODE "
-                    f"WHEN NOT MATCHED THEN INSERT (STORE_CODE, CREATED_BY) VALUES (n.STORE_CODE, ?)", [code, actor])
+                    f"WHEN NOT MATCHED THEN INSERT (STORE_CODE, MAX_MPOS, CREATED_BY) VALUES (n.STORE_CODE, ?, ?)",
+                    [code, S.MAX_MPOS, actor])  # the limit is set here: Snowflake cannot change a column default
         cur.execute(f"SELECT NEXT_SEQ, MAX_MPOS FROM {STORES} WHERE STORE_CODE = ?", [code])
         st = cur.fetchall()[0]
         cur.execute(f"SELECT COUNT(*) AS N FROM {TERMINALS} WHERE STORE_CODE = ? AND STATUS = 'ACTIVE'", [code])

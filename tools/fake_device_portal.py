@@ -14,7 +14,7 @@ Pairing works with the code SIM234 for any terminal.
 
 New terminals are added with POST /sim/add {"store": "FK001", "count": 1, "autopair": true} - "store"
 null adds to every store. Like `add-mpos` they take the store's next number (never reused), stop at
-MAX_MPOS (10) and come with a pairing code; with "autopair" a running phone_sim.py pairs a simulated
+MAX_MPOS (5) and come with a pairing code; with "autopair" a running phone_sim.py pairs a simulated
 phone to each one, otherwise it waits for `phone_sim.py pair` with the code.
 
 The switches are flipped with POST /sim/switch (phone_sim.py switch ... does it for you):
@@ -177,7 +177,7 @@ class FakeSnowflake:
 
 class Add(BaseModel):
     store: str | None = None  # None = every store
-    count: int = Field(1, ge=1, le=10)
+    count: int = Field(1, ge=1, le=S.MAX_MPOS)
     autopair: bool = True
 
 

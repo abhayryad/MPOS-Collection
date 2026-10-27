@@ -203,7 +203,7 @@
       </div>
       <label class="check"><input type="checkbox" id="autopair" checked>
         <span>Pair a simulated phone to each one<small>Off: the terminal waits with its pairing code, like a real phone not set up yet</small></span></label>
-      <div class="note">Each new terminal takes the store's next number (MPOS3, MPOS4&hellip;), which is never reused. A store can have at most 10.</div>
+      <div class="note">Each new terminal takes the store's next number (MPOS3, MPOS4&hellip;), which is never reused. A store can have at most 5.</div>
       <div class="result" id="addResult" hidden></div>
     </div>
     <div class="dlg-f">
@@ -424,7 +424,7 @@ function syncAdd() {
 dlg.addEventListener("input", syncAdd);
 dlg.addEventListener("change", syncAdd);
 dlg.querySelectorAll("[data-step]").forEach(b => b.onclick = () => {
-  $("addCount").value = Math.max(1, Math.min(10, +$("addCount").value + +b.dataset.step)); syncAdd(); });
+  $("addCount").value = Math.max(1, Math.min(5, +$("addCount").value + +b.dataset.step)); syncAdd(); });
 $("addGo").onclick = async () => {
   const all = addAll(), code = $("addStore").value.trim().toUpperCase(), count = +$("addCount").value;
   if (!all && !code) { $("addStore").focus(); return; }
@@ -440,7 +440,7 @@ $("addGo").onclick = async () => {
     ? out.added.map(a => `<div>${a.terminal} &middot; pairing code <code>${a.code}</code></div>`).join("")
     : `<div><b>${out.added.length}</b> terminals added, e.g. ${out.added.slice(0, 3).map(a => a.terminal).join(", ")}&hellip;</div>`;
   const limit = [...new Set(out.at_limit)];
-  const full = limit.length ? `<div class="warn">${limit.length} store(s) at the 10-terminal limit, nothing more added there: ${limit.slice(0, 8).join(", ")}${limit.length > 8 ? "&hellip;" : ""}</div>` : "";
+  const full = limit.length ? `<div class="warn">${limit.length} store(s) at the 5-terminal limit, nothing more added there: ${limit.slice(0, 8).join(", ")}${limit.length > 8 ? "&hellip;" : ""}</div>` : "";
   res.innerHTML = (out.added.length ? list : "<div>Nothing added.</div>") + full;
   addEvent(`<span class="k">You:</span> added ${out.added.length} mPOS ${all ? "across every store" : "to " + code}`, true);
   if (out.added.length === 1) sel = out.added[0].terminal;

@@ -142,6 +142,8 @@ class StorePairingTest(unittest.TestCase):
         self.assertEqual(insert, ["HD22_MPOS3", "HD22", 3, "v25151"])
         guard = next(p for s, p in self.conn.statements if "SET NEXT_SEQ" in s)
         self.assertEqual(guard, [4, "v25151", "HD22", 3])
+        new_store = next(p for s, p in self.conn.statements if s.startswith("MERGE INTO V2RETAIL.BRONZE.MPOS_STORES"))
+        self.assertEqual(new_store, ["HD22", 5, "v25151"])  # a new store row gets the limit of 5
         self.assertEqual(self.events[-1][0], "TERMINAL_ADDED")
 
     def test_add_terminal_limit_and_race_roll_back(self):

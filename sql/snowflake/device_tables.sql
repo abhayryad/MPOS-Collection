@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS V2RETAIL.BRONZE.MPOS_STORES (
     DAY_OPENED_BY   VARCHAR(50),
     DAY_CLOSE_TIME  VARCHAR(5),                            -- 'HH:MM' local time, NULL = closed by hand only
     APPROVER        VARCHAR(50),                           -- site username of the store's device approver
-    MAX_MPOS        NUMBER        NOT NULL DEFAULT 10,
+    MAX_MPOS        NUMBER        NOT NULL DEFAULT 5,      -- active terminals allowed, the code sets it on insert
     NEXT_SEQ        NUMBER        NOT NULL DEFAULT 1,      -- next terminal number, never reused
     VERSION         NUMBER        NOT NULL DEFAULT 1,
     CREATED_AT      TIMESTAMP_NTZ NOT NULL DEFAULT CURRENT_TIMESTAMP(),
@@ -73,7 +73,7 @@ CREATE TABLE IF NOT EXISTS V2RETAIL.BRONZE.MPOS_DEVICE_HISTORY (
     LEVEL           VARCHAR(10)   NOT NULL,  -- GLOBAL, STORE, TERMINAL
     TARGET          VARCHAR(30),        -- store code or terminal ID (NULL for GLOBAL)
     EVENT           VARCHAR(40)   NOT NULL,
-    -- GLOBAL_ON, GLOBAL_OFF, STORE_ON, STORE_OFF, DAY_OPEN, DAY_CLOSE, APPROVER_SET,
+    -- GLOBAL_ON, GLOBAL_OFF, STORE_ON, STORE_OFF, DAY_OPEN, DAY_CLOSE, APPROVER_SET, MAX_SET,
     -- TERMINAL_ADDED, TERMINAL_ON, TERMINAL_OFF, VETO_ON, VETO_OFF, LOCK_ON, LOCK_OFF,
     -- PAIR_CODE_ISSUED, PAIR_FAILED, PAIRED, RETIRED, DRAIN_DONE, OFFLINE, ONLINE
     OLD_VALUE       VARCHAR(200),

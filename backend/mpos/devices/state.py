@@ -11,6 +11,8 @@ from dataclasses import dataclass
 
 ON, DRAINING, OFF = "ON", "DRAINING", "OFF"
 
+MAX_MPOS = 5  # active mPOS terminals a store may have, unless HO sets MPOS_STORES.MAX_MPOS otherwise
+
 # Why a terminal is not ON.
 RETIRED = "RETIRED"
 NOT_PAIRED = "NOT_PAIRED"
@@ -49,7 +51,7 @@ class Store:
     day_open: bool = False
     day_close_time: str | None = None
     approver: str | None = None
-    max_mpos: int = 10
+    max_mpos: int = MAX_MPOS
     next_seq: int = 1
     version: int = 1
 
