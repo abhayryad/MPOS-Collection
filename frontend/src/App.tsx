@@ -8,9 +8,10 @@ import { SaleByHour } from "./pages/reports/SaleByHour";
 import { DailySalesSummary } from "./pages/reports/DailySalesSummary";
 import { HeadCashier } from "./pages/reports/HeadCashier";
 import { Admin } from "./pages/Admin";
+import { StoreDevices } from "./pages/devices/StoreDevices";
 import { ChangePassword, Login } from "./pages/Login";
 
-const ROUTES = ["/downloads", "/reports/electronic-general", "/reports/sale-by-hour", "/reports/daily-sales-summary", "/reports/head-cashier", "/admin"] as const;
+const ROUTES = ["/downloads", "/reports/electronic-general", "/reports/sale-by-hour", "/reports/daily-sales-summary", "/reports/head-cashier", "/devices", "/admin"] as const;
 type Route = (typeof ROUTES)[number];
 
 /** Tabs and the role that opens each (null = admin only). Mirrors backend/mpos/auth/roles.py.
@@ -29,6 +30,7 @@ const NAV: (NavItem<Route> & { role: string | null })[] = [
       { route: "/reports/head-cashier", label: "Head Cashier" },
     ],
   },
+  { route: "/devices", label: "mPOS Devices", icon: "▣", role: "DEVICES" },
   { route: "/admin", label: "Admin", icon: "⚙", role: null },
 ];
 
@@ -128,6 +130,7 @@ function Shell({ me, onLogout, onChangePassword }: { me: Me; onLogout: () => voi
           {route === "/reports/sale-by-hour" && routes.includes(route) && <SaleByHour meta={meta} />}
           {route === "/reports/daily-sales-summary" && routes.includes(route) && <DailySalesSummary meta={meta} />}
           {route === "/reports/head-cashier" && routes.includes(route) && <HeadCashier meta={meta} />}
+          {route === "/devices" && routes.includes(route) && <StoreDevices />}
           {route === "/admin" && me.is_admin && <Admin me={me} />}
         </div>
       </main>
