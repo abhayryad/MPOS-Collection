@@ -60,11 +60,12 @@ class Cache:
         return True
 
     def start_refresher(self):
-        """Background thread: refresh_if_changed every REFRESH_SECONDS. Snowflake trouble is logged,
-        and the phones keep being answered from the copy already held."""
+        """Background thread: load now, then refresh_if_changed every REFRESH_SECONDS. Snowflake trouble
+        is logged, and the phones keep being answered from the copy already held."""
         stop = threading.Event()
 
         def loop():
+            self.tick()
             while not stop.wait(REFRESH_SECONDS):
                 self.tick()
 
@@ -115,6 +116,13 @@ class Cache:
             live = self._live(terminal_id)
             live.bill_open, live.last_seen = True, now or datetime.now()
             return True, current
+
+    def lock_here(self, terminal_id, reason):
+        """Lock in this copy straight away, while the lock is being saved to Snowflake."""
+        with self._lock:
+            t = self.terminals[terminal_id]
+            t.immediate_lock, t.lock_reason = True, reason
+            return self._state(terminal_id)
 
     def end_bill(self, terminal_id, now=None):
         """(state before, state after). DRAINING before and OFF after = the drain just finished."""

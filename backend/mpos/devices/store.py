@@ -207,6 +207,16 @@ def issue_pair_code(terminal_id, actor, ip=None):
     return code
 
 
+def lock_terminal(terminal_id, reason, actor, ip=None):
+    """Immediate lock: the terminal stops at once, even mid-bill, until HO unlocks it."""
+    n = _run(f"UPDATE {TERMINALS} SET IMMEDIATE_LOCK = TRUE, LOCK_REASON = ?, VERSION = VERSION + 1, "
+             f"UPDATED_AT = CURRENT_TIMESTAMP(), UPDATED_BY = ? WHERE TERMINAL_ID = ?",
+             [_cut(reason, 500), actor, terminal_id], fetch=False)
+    if n == 1:
+        bump_change()
+        record("LOCK_ON", "TERMINAL", actor=actor, target=terminal_id, new="LOCKED", reason=reason, ip=ip)
+
+
 def redeem_pair_code(terminal_id, code, *, serial, app_version, ip=None):
     """Pair a phone: check the code, and return the phone's new token (shown once). Raises PairingError."""
     tid = (terminal_id or "").strip().upper()

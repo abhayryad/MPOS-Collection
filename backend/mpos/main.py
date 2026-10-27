@@ -5,14 +5,24 @@
 
 or start_lan.bat to serve it on the LAN.
 """
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 
-from .api import routers
+from .api import device_api, routers
 from .config import settings
 
-app = FastAPI(title="MPOS Collection")
+
+@asynccontextmanager
+async def lifespan(_app):
+    stop = device_api.start()  # mPOS switches into memory, refreshed in the background
+    yield
+    stop.set()
+
+
+app = FastAPI(title="MPOS Collection", lifespan=lifespan)
 for router in routers:
     app.include_router(router)
 
