@@ -64,7 +64,7 @@ class Add(BaseModel):
 
 
 class Settings(BaseModel):
-    max_mpos: int | None = Field(None, ge=0, le=20)
+    max_mpos: int | None = Field(None, ge=0, le=S.MAX_MPOS)  # hard limit 5: HO can only lower it
     approver: str | None = Field(None, max_length=50)  # "" clears it
     day_control: bool | None = None
     day_close_time: str | None = None  # "HH:MM", "" clears it

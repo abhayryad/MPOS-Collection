@@ -205,6 +205,11 @@ class StorePairingTest(unittest.TestCase):
         self.assertEqual(new_store, ["HD22", 5, "v25151"])  # a new store row gets the limit of 5
         self.assertEqual(self.events[-1][0], "TERMINAL_ADDED")
 
+    def test_add_terminal_never_above_5(self):
+        self.use(("SELECT NEXT_SEQ", [{"NEXT_SEQ": 6, "MAX_MPOS": 10}], 0), ("SELECT COUNT(*)", [{"N": 5}], 0))
+        with self.assertRaisesRegex(store.LimitReached, "already has 5"):
+            store.add_terminal("HD22", actor="v25151")
+
     def test_add_terminal_limit_and_race_roll_back(self):
         self.use(("SELECT NEXT_SEQ", [{"NEXT_SEQ": 11, "MAX_MPOS": 10}], 0), ("SELECT COUNT(*)", [{"N": 10}], 0))
         with self.assertRaises(store.LimitReached):

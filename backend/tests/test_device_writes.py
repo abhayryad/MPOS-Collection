@@ -120,6 +120,15 @@ class WritesTest(unittest.TestCase):
         self.assertEqual(self.events[-1][0], "TERMINAL_ADDED")
         self.assertEqual(self.events[-1][1]["affected"], 3)
 
+    def test_hard_limit_of_5_whatever_the_row_says(self):
+        self.use(("SELECT s.STORE_CODE, s.NEXT_SEQ", [{"STORE_CODE": "HD22", "NEXT_SEQ": 6, "MAX_MPOS": 10, "ACTIVE": 4}], 0),
+                 ("UPDATE V2RETAIL.BRONZE.MPOS_STORES s SET NEXT_SEQ", [], 1))
+        self.assertEqual(store.add_terminals(["HD22"], 3, "ho1"), (["HD22_MPOS6"], ["HD22"]))  # one slot left, not six
+        self.use()
+        with self.assertRaisesRegex(ValueError, "at most 5"):
+            store.set_store_settings("HD22", {"max_mpos": 6}, "ho1")
+        store.set_store_settings("HD22", {"max_mpos": 3}, "ho1")  # lower is fine
+
     def test_add_terminals_race_rolls_back(self):
         self.use(("SELECT s.STORE_CODE, s.NEXT_SEQ", [{"STORE_CODE": "HD22", "NEXT_SEQ": 1, "MAX_MPOS": 5,
                                                        "ACTIVE": 0}], 0),

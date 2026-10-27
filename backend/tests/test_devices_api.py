@@ -209,6 +209,8 @@ class DevicesApiTest(unittest.TestCase):
         api.settings("HD22", api.Settings(approver=""), request(), HO)
         self.assertEqual(self.writes["set_store_settings"].call_args.args[1], {"approver": None})  # cleared
         self.refused(400, api.settings, "HD22", api.Settings(day_close_time="25:00"), request(), HO)
+        with self.assertRaises(ValueError):
+            api.Settings(max_mpos=6)  # hard limit 5
 
     # ------------------------------------------------------------ errors and preview
 

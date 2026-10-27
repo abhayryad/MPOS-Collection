@@ -522,8 +522,8 @@ function HoSettings({ store, onSave }: { store: Store; onSave: (change: StoreSet
         </label>
         <label>
           Terminal limit
-          <input type="number" min={0} max={20} value={max} onChange={(e) => setMax(Math.max(0, Math.min(20, +e.target.value || 0)))} />
-          <span className="field-hint">Active terminals allowed (default 5)</span>
+          <input type="number" min={0} max={5} value={max} onChange={(e) => setMax(Math.max(0, Math.min(5, +e.target.value || 0)))} />
+          <span className="field-hint">Active terminals allowed: 5 at most, lower if you want</span>
         </label>
         <label className="check dev-check">
           <input type="checkbox" checked={dayControl} onChange={(e) => setDayControl(e.target.checked)} />

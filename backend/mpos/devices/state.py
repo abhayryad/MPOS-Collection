@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 ON, DRAINING, OFF = "ON", "DRAINING", "OFF"
 
-MAX_MPOS = 5  # active mPOS terminals a store may have, unless HO sets MPOS_STORES.MAX_MPOS otherwise
+MAX_MPOS = 5  # hard limit: active mPOS terminals per store. HO may set a store lower (MPOS_STORES.MAX_MPOS), never higher
 
 # Why a terminal is not ON.
 RETIRED = "RETIRED"

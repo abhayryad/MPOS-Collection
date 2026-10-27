@@ -181,8 +181,9 @@ def add_terminal(store_code, actor, ip=None):
         cur.execute(f"SELECT NEXT_SEQ, MAX_MPOS FROM {STORES} WHERE STORE_CODE = ?", [code])
         st = cur.fetchall()[0]
         cur.execute(f"SELECT COUNT(*) AS N FROM {TERMINALS} WHERE STORE_CODE = ? AND STATUS = 'ACTIVE'", [code])
-        if int(cur.fetchall()[0]["N"]) >= int(st["MAX_MPOS"]):
-            raise LimitReached(f"{code} already has {st['MAX_MPOS']} active mPOS terminals")
+        limit = min(int(st["MAX_MPOS"]), S.MAX_MPOS)
+        if int(cur.fetchall()[0]["N"]) >= limit:
+            raise LimitReached(f"{code} already has {limit} active mPOS terminals")
         seq = int(st["NEXT_SEQ"])
         cur.execute(f"UPDATE {STORES} SET NEXT_SEQ = ?, UPDATED_AT = CURRENT_TIMESTAMP(), UPDATED_BY = ? "
                     f"WHERE STORE_CODE = ? AND NEXT_SEQ = ?", [seq + 1, actor, code, seq])
@@ -408,6 +409,8 @@ def set_store_settings(store_code, changes, actor, version=None, ip=None):
     row first if it never had mPOS."""
     code = store_code.strip().upper()
     changes = {k: v for k, v in changes.items() if k in STORE_SETTINGS}
+    if not 0 <= int(changes.get("max_mpos", 0)) <= S.MAX_MPOS:
+        raise ValueError(f"A store can have at most {S.MAX_MPOS} mPOS terminals")
     if not changes:
         return
     _run(f"MERGE INTO {STORES} s USING (SELECT ? AS STORE_CODE) n ON s.STORE_CODE = n.STORE_CODE "
@@ -438,7 +441,7 @@ def add_terminals(store_codes, count, actor, ip=None):
                     f"ORDER BY s.STORE_CODE", codes)
         rows = []
         for r in cur.fetchall():
-            seq, room = int(r["NEXT_SEQ"]), int(r["MAX_MPOS"]) - int(r["ACTIVE"])
+            seq, room = int(r["NEXT_SEQ"]), min(int(r["MAX_MPOS"]), S.MAX_MPOS) - int(r["ACTIVE"])
             n = max(0, min(count, room))
             if n < count:
                 full.append(r["STORE_CODE"])
