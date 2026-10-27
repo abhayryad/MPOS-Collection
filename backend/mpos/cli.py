@@ -103,7 +103,8 @@ def add_mpos(args):
 
 
 def pair_code(args):
-    """A new pairing code for an existing terminal. Shuts out the phone paired to it now, if any."""
+    """A new pairing code for an existing terminal. The phone paired to it now keeps billing until a new
+    phone pairs with this code."""
     from .devices import store as devices
 
     tid = args.terminal.strip().upper()

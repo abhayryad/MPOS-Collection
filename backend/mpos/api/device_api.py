@@ -77,6 +77,9 @@ def pair(body: Pair, request: Request):
     ip = _ip(request)
     if not _pair_limit.allow(ip or "?"):
         raise HTTPException(429, "Too many pairing attempts - wait a minute and try again")
+    busy = cache.current.billing_phone(body.terminal.strip().upper(), body.serial)
+    if busy:
+        raise HTTPException(409, f"A bill is open on {busy} - finish it, then pair this phone")
     try:
         token = store.redeem_pair_code(body.terminal, body.code, serial=body.serial,
                                        app_version=body.app_version, ip=ip)

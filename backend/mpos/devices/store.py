@@ -193,16 +193,17 @@ def add_terminal(store_code, actor, ip=None):
 
 
 def issue_pair_code(terminal_id, actor, ip=None):
-    """A fresh pairing code for the terminal, returned once (only its hash is kept). Any phone already
-    paired to the terminal is shut out at once - this is also how a lost or replaced phone is re-paired."""
+    """A fresh pairing code for the terminal, returned once (only its hash is kept). A phone already
+    paired to the terminal keeps working - its bill is never cut - until a new phone pairs with this
+    code. A lost or stolen phone is stopped with an immediate lock, or unpaired, not with a code."""
     code = pairing.new_code()
     n = _run(f"UPDATE {TERMINALS} SET PAIR_CODE_HASH = ?, PAIR_EXPIRES_AT = DATEADD(minute, ?, CURRENT_TIMESTAMP()), "
-             f"PAIR_ATTEMPTS = 0, TOKEN_HASH = NULL, VERSION = VERSION + 1, "
+             f"PAIR_ATTEMPTS = 0, VERSION = VERSION + 1, "
              f"UPDATED_AT = CURRENT_TIMESTAMP(), UPDATED_BY = ? WHERE TERMINAL_ID = ? AND STATUS = 'ACTIVE'",
              [pairing.code_digest(code), pairing.CODE_MINUTES, actor, terminal_id], fetch=False)
     if n != 1:
         raise ValueError(f"No active terminal {terminal_id}")
-    bump_change()  # the old token (if any) stops working everywhere
+    bump_change()
     record("PAIR_CODE_ISSUED", "TERMINAL", actor=actor, target=terminal_id,
            reason=f"valid {pairing.CODE_MINUTES} minutes", ip=ip)
     return code
@@ -219,9 +220,14 @@ def lock_terminal(terminal_id, reason, actor, ip=None):
 
 
 def redeem_pair_code(terminal_id, code, *, serial, app_version, ip=None):
-    """Pair a phone: check the code, and return the phone's new token (shown once). Raises PairingError."""
+    """Pair a phone: check the code, and return the phone's new token (shown once). Raises PairingError.
+
+    The new token replaces the old one, so a phone paired before stops working now. One phone holds
+    one terminal: if this phone was paired to another terminal, it is unpaired from it. The caller
+    first makes sure no bill is open on either (see cache.Cache.billing_phone)."""
     tid = (terminal_id or "").strip().upper()
-    rows = _run(f"SELECT STATUS, PAIR_CODE_HASH, PAIR_ATTEMPTS, "
+    serial = _cut(serial, 100)
+    rows = _run(f"SELECT STATUS, PAIR_CODE_HASH, PAIR_ATTEMPTS, DEVICE_SERIAL, TOKEN_HASH, "
                 f"PAIR_EXPIRES_AT > CURRENT_TIMESTAMP() AS CODE_LIVE FROM {TERMINALS} WHERE TERMINAL_ID = ?", [tid])
     row = rows[0] if rows else None
     if not row or row["STATUS"] != "ACTIVE" or not row["PAIR_CODE_HASH"] or not row["CODE_LIVE"]:
@@ -236,17 +242,60 @@ def redeem_pair_code(terminal_id, code, *, serial, app_version, ip=None):
             raise PairingError("Too many wrong codes - this code is cancelled, ask the store for a new one")
         raise PairingError(f"Wrong code - {left} {'try' if left == 1 else 'tries'} left")
     token = pairing.new_token()
-    n = _run(f"UPDATE {TERMINALS} SET TOKEN_HASH = ?, PAIR_CODE_HASH = NULL, PAIR_EXPIRES_AT = NULL, "
-             f"PAIR_ATTEMPTS = 0, DEVICE_SERIAL = ?, APP_VERSION = ?, PAIRED_AT = CURRENT_TIMESTAMP(), "
-             f"PAIRED_BY = ?, VERSION = VERSION + 1, UPDATED_AT = CURRENT_TIMESTAMP(), UPDATED_BY = ? "
-             f"WHERE TERMINAL_ID = ? AND PAIR_CODE_HASH = ?",
-             [pairing.token_digest(token), _cut(serial, 100), _cut(app_version, 30), tid, tid, tid,
-              row["PAIR_CODE_HASH"]], fetch=False)
-    if n != 1:  # the same code was used by another phone a moment ago
-        raise PairingError("This code has just been used - ask the store for a new one")
+    with _transaction() as cur:
+        cur.execute(f"UPDATE {TERMINALS} SET TOKEN_HASH = ?, PAIR_CODE_HASH = NULL, PAIR_EXPIRES_AT = NULL, "
+                    f"PAIR_ATTEMPTS = 0, DEVICE_SERIAL = ?, APP_VERSION = ?, PAIRED_AT = CURRENT_TIMESTAMP(), "
+                    f"PAIRED_BY = ?, VERSION = VERSION + 1, UPDATED_AT = CURRENT_TIMESTAMP(), UPDATED_BY = ? "
+                    f"WHERE TERMINAL_ID = ? AND PAIR_CODE_HASH = ?",
+                    [pairing.token_digest(token), serial, _cut(app_version, 30), tid, tid, tid,
+                     row["PAIR_CODE_HASH"]])
+        if cur.rowcount != 1:  # the same code was used by another phone a moment ago
+            raise PairingError("This code has just been used - ask the store for a new one")
+        cur.execute(f"SELECT TERMINAL_ID FROM {TERMINALS} WHERE DEVICE_SERIAL = ? AND TERMINAL_ID <> ? "
+                    f"AND STATUS = 'ACTIVE' AND TOKEN_HASH IS NOT NULL", [serial, tid])
+        moved_from = [r["TERMINAL_ID"] for r in cur.fetchall()]
+        if moved_from:
+            cur.execute(f"UPDATE {TERMINALS} SET {_UNPAIR}, UPDATED_BY = ? WHERE TERMINAL_ID IN "
+                        f"({', '.join('?' * len(moved_from))})", [tid, *moved_from])
     bump_change()
-    record("PAIRED", "TERMINAL", actor=tid, target=tid, new=_cut(serial, 100), ip=ip)
+    replaced = row["DEVICE_SERIAL"] if row["TOKEN_HASH"] and row["DEVICE_SERIAL"] != serial else None
+    record("PAIRED", "TERMINAL", actor=tid, target=tid, old=replaced, new=serial,
+           reason="replaced the phone paired before" if replaced else None, ip=ip)
+    for other in moved_from:
+        record("UNPAIRED", "TERMINAL", actor=tid, target=other, old=serial, reason=f"phone paired to {tid}", ip=ip)
     return token
+
+
+# Clears the phone and any open code from a terminal: its token stops working at once.
+_UNPAIR = ("TOKEN_HASH = NULL, DEVICE_SERIAL = NULL, PAIR_CODE_HASH = NULL, PAIR_EXPIRES_AT = NULL, "
+           "PAIR_ATTEMPTS = 0, VERSION = VERSION + 1, UPDATED_AT = CURRENT_TIMESTAMP()")
+
+
+def unpair_terminal(terminal_id, actor, reason=None, ip=None):
+    """Disconnect the phone from the terminal; the terminal stays and waits for a new phone. The phone
+    stops at once, so the caller first makes sure it has no bill open. Raises ValueError if there is
+    no active terminal by that ID."""
+    tid = (terminal_id or "").strip().upper()
+    rows = _run(f"SELECT DEVICE_SERIAL FROM {TERMINALS} WHERE TERMINAL_ID = ? AND STATUS = 'ACTIVE'", [tid])
+    if not rows:
+        raise ValueError(f"No active terminal {tid}")
+    _run(f"UPDATE {TERMINALS} SET {_UNPAIR}, UPDATED_BY = ? WHERE TERMINAL_ID = ? AND STATUS = 'ACTIVE'",
+         [actor, tid], fetch=False)
+    bump_change()
+    record("UNPAIRED", "TERMINAL", actor=actor, target=tid, old=rows[0]["DEVICE_SERIAL"], reason=reason, ip=ip)
+
+
+def retire_terminal(terminal_id, actor, reason=None, ip=None):
+    """Retire the terminal for good: its phone stops at once, its number is never used again and it no
+    longer counts towards the store's MAX_MPOS. The caller first makes sure no bill is open on it.
+    Raises ValueError if there is no active terminal by that ID."""
+    tid = (terminal_id or "").strip().upper()
+    n = _run(f"UPDATE {TERMINALS} SET STATUS = 'RETIRED', {_UNPAIR}, UPDATED_BY = ? "
+             f"WHERE TERMINAL_ID = ? AND STATUS = 'ACTIVE'", [actor, tid], fetch=False)
+    if n != 1:
+        raise ValueError(f"No active terminal {tid}")
+    bump_change()
+    record("RETIRED", "TERMINAL", actor=actor, target=tid, old="ACTIVE", new="RETIRED", reason=reason, ip=ip)
 
 
 # ---------------------------------------------------------------- phone check-ins

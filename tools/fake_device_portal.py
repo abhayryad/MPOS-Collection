@@ -124,8 +124,11 @@ class FakeSnowflake:
             raise store.PairingError("Wrong code - 4 tries left")
         token = pairing.new_token()
         with self._lock:
+            for other in self.terminals.values():  # one phone, one terminal
+                if other.terminal_id != tid and other.device_serial == serial and other.paired:
+                    other.token_hash = other.device_serial = None
             t = self.terminals[tid]
-            t.token_hash, t.device_serial, t.immediate_lock = pairing.token_digest(token), serial, False
+            t.token_hash, t.device_serial = pairing.token_digest(token), serial  # a lock stays until HO lifts it
             self.pair_codes.pop(tid, None)
             self.seq += 1
         self.record("PAIRED", "TERMINAL", actor=tid, target=tid, new=serial)

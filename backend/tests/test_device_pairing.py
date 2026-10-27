@@ -75,10 +75,10 @@ class StorePairingTest(unittest.TestCase):
             p.start()
             self.addCleanup(p.stop)
 
-    def live_code(self, code="K7P2QX", attempts=0, live=True, status="ACTIVE"):
+    def live_code(self, code="K7P2QX", attempts=0, live=True, status="ACTIVE", old_serial=None):
         return ("SELECT STATUS, PAIR_CODE_HASH",
                 [{"STATUS": status, "PAIR_CODE_HASH": pairing.code_digest(code), "PAIR_ATTEMPTS": attempts,
-                  "CODE_LIVE": live}], 0)
+                  "CODE_LIVE": live, "DEVICE_SERIAL": old_serial, "TOKEN_HASH": "old" if old_serial else None}], 0)
 
     def redeem(self, code="K7P2QX"):
         return store.redeem_pair_code("hd22_mpos1", code, serial="SN-1", app_version="2.4.0", ip="10.0.0.5")
@@ -91,7 +91,37 @@ class StorePairingTest(unittest.TestCase):
         self.assertNotIn(token, str(self.conn.statements))
         self.assertEqual(update[1][-2:], ["HD22_MPOS1", pairing.code_digest("K7P2QX")])  # code must still be open
         self.assertTrue(any("CHANGE_SEQ + 1" in s for s in self.conn.sql()))  # running sites reload
-        self.assertEqual(self.events[-1][0], "PAIRED")
+        self.assertEqual(self.events, [("PAIRED", {"actor": "HD22_MPOS1", "target": "HD22_MPOS1", "old": None,
+                                                   "new": "SN-1", "reason": None, "ip": "10.0.0.5"})])
+        sql = self.conn.sql()
+        self.assertLess(sql.index("BEGIN"), sql.index("COMMIT"))  # token and phone move in one transaction
+
+    def test_new_phone_replaces_the_old_one(self):
+        self.use(self.live_code(old_serial="SN-OLD"))
+        self.redeem()
+        self.assertEqual(self.events[0][1]["old"], "SN-OLD")
+        self.assertEqual(self.events[0][1]["reason"], "replaced the phone paired before")
+
+    def test_one_phone_one_terminal(self):
+        self.use(self.live_code(), ("SELECT TERMINAL_ID FROM", [{"TERMINAL_ID": "HD22_MPOS2"}], 0))
+        self.redeem()
+        find = next(p for s, p in self.conn.statements if s.startswith("SELECT TERMINAL_ID FROM"))
+        self.assertEqual(find, ["SN-1", "HD22_MPOS1"])  # this phone, on any other terminal
+        sql, params = next((s, p) for s, p in self.conn.statements if "WHERE TERMINAL_ID IN" in s)
+        self.assertIn("TOKEN_HASH = NULL", sql)
+        self.assertEqual(params, ["HD22_MPOS1", "HD22_MPOS2"])
+        self.assertEqual(self.events[-1][0], "UNPAIRED")
+        self.assertEqual(self.events[-1][1]["target"], "HD22_MPOS2")
+        self.assertEqual(self.events[-1][1]["reason"], "phone paired to HD22_MPOS1")
+
+    def test_failed_pairing_rolls_back_the_move(self):
+        self.use(self.live_code(), ("SET TOKEN_HASH = ?", [], 0))
+        with self.assertRaises(store.PairingError):
+            self.redeem()
+        sql = self.conn.sql()
+        self.assertEqual(sql[-1], "ROLLBACK")
+        self.assertFalse(any(s.startswith("SELECT TERMINAL_ID FROM") for s in sql))
+        self.assertEqual(self.events, [])
 
     def test_no_code_expired_or_retired(self):
         for answer in [("SELECT STATUS", [], 0), self.live_code(live=False), self.live_code(status="RETIRED"),
@@ -121,16 +151,42 @@ class StorePairingTest(unittest.TestCase):
         with self.assertRaisesRegex(store.PairingError, "just been used"):
             self.redeem()
 
-    def test_issue_code_shuts_out_the_old_phone(self):
+    def test_issue_code_leaves_the_current_phone_billing(self):
         self.use()
         code = store.issue_pair_code("HD22_MPOS1", actor="v25151")
         sql, params = next((s, p) for s, p in self.conn.statements if "SET PAIR_CODE_HASH" in s)
-        self.assertIn("TOKEN_HASH = NULL", sql)
+        self.assertNotIn("TOKEN_HASH", sql)  # the phone stops only when a new one pairs
         self.assertEqual(params[0], pairing.code_digest(code))
         self.assertEqual(self.events[-1][0], "PAIR_CODE_ISSUED")
         self.use(("SET PAIR_CODE_HASH", [], 0))
         with self.assertRaises(ValueError):
             store.issue_pair_code("HD22_MPOS9", actor="v25151")
+
+    def test_unpair(self):
+        self.use(("SELECT DEVICE_SERIAL", [{"DEVICE_SERIAL": "SN-1"}], 0))
+        store.unpair_terminal("hd22_mpos1", actor="v25151", reason="phone sent for repair")
+        sql, params = next((s, p) for s, p in self.conn.statements if s.startswith("UPDATE V2RETAIL.BRONZE.MPOS_TERMINALS"))
+        for cleared in ("TOKEN_HASH = NULL", "DEVICE_SERIAL = NULL", "PAIR_CODE_HASH = NULL"):
+            self.assertIn(cleared, sql)
+        self.assertNotIn("STATUS = 'RETIRED'", sql)
+        self.assertEqual(params, ["v25151", "HD22_MPOS1"])
+        self.assertEqual(self.events[-1], ("UNPAIRED", {"actor": "v25151", "target": "HD22_MPOS1", "old": "SN-1",
+                                                       "reason": "phone sent for repair", "ip": None}))
+        self.use(("SELECT DEVICE_SERIAL", [], 0))
+        with self.assertRaises(ValueError):
+            store.unpair_terminal("HD22_MPOS9", actor="v25151")
+
+    def test_retire(self):
+        self.use()
+        store.retire_terminal("HD22_MPOS1", actor="ho1", reason="phone returned")
+        sql = next(s for s in self.conn.sql() if s.startswith("UPDATE V2RETAIL.BRONZE.MPOS_TERMINALS"))
+        self.assertIn("STATUS = 'RETIRED'", sql)
+        self.assertIn("TOKEN_HASH = NULL", sql)
+        self.assertIn("AND STATUS = 'ACTIVE'", sql)  # retiring twice does nothing
+        self.assertEqual(self.events[-1][0], "RETIRED")
+        self.use(("STATUS = 'RETIRED'", [], 0))
+        with self.assertRaises(ValueError):
+            store.retire_terminal("HD22_MPOS1", actor="ho1")
 
     def test_add_terminal_takes_the_next_number(self):
         self.use(("SELECT NEXT_SEQ", [{"NEXT_SEQ": 3, "MAX_MPOS": 10}], 0), ("SELECT COUNT(*)", [{"N": 2}], 0))

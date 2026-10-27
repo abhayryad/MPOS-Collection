@@ -2,6 +2,7 @@
 Snowflake faked)."""
 import asyncio
 import unittest
+from datetime import datetime, timedelta
 from unittest import mock
 
 from fastapi import BackgroundTasks, HTTPException
@@ -170,6 +171,34 @@ class PhoneApiTest(unittest.TestCase):
             self.assertEqual(e.exception.status_code, status)
             self.assertEqual(e.exception.detail, str(error) if status == 400 else
                              "Pairing is unavailable right now - try again shortly")
+
+    def test_pair_waits_for_an_open_bill(self):
+        run(api.bill_start(api.BillStart(), self.t))
+        run(api.heartbeat(api.Heartbeat(bill_open=True, serial="SN-1", app_version="2.4.0"),
+                          request(), BackgroundTasks(), self.t))
+        with mock.patch.object(api.store, "redeem_pair_code") as redeem, self.assertRaises(HTTPException) as e:
+            self.pair()
+        self.assertEqual(e.exception.status_code, 409)
+        self.assertEqual(e.exception.detail, "A bill is open on HD22_MPOS1 - finish it, then pair this phone")
+        redeem.assert_not_called()  # the code is not used up
+
+        run(api.bill_end(api.BillEnd(), request(), BackgroundTasks(), self.t))
+        with mock.patch.object(api.store, "redeem_pair_code", return_value="new-token"):
+            self.assertEqual(self.pair()["token"], "new-token")
+
+    def test_phone_billing_on_another_terminal_cannot_pair(self):
+        self.terminals["HD22_MPOS2"] = S.Terminal("HD22_MPOS2", "HD22", 2, token_hash=pairing.token_digest("t2"),
+                                                  device_serial="SN-7")
+        self.change()
+        self.cache.start_bill("HD22_MPOS2")
+        with self.assertRaises(HTTPException) as e:
+            api.pair(api.Pair(terminal="HD22_MPOS1", code="K7P2QX", serial="SN-7", app_version="2.4.0"), request())
+        self.assertEqual(e.exception.status_code, 409)
+        self.assertIn("HD22_MPOS2", e.exception.detail)
+
+    def test_silent_phone_does_not_block_pairing(self):
+        self.cache.start_bill("HD22_MPOS1", now=datetime.now() - timedelta(seconds=C.GONE_SECONDS + 1))
+        self.assertIsNone(self.cache.billing_phone("HD22_MPOS1", "SN-2"))  # lost mid-bill: re-pair allowed
 
     def test_pair_rate_limited(self):
         with mock.patch.object(api, "_pair_limit", pairing.RateLimit(limit=1, seconds=60)), \

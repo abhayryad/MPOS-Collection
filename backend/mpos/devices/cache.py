@@ -17,6 +17,7 @@ from . import state as S
 from . import store
 
 REFRESH_SECONDS = 15
+GONE_SECONDS = 120  # a phone silent this long is taken as gone: its open bill no longer blocks re-pairing
 log = logging.getLogger(__name__)
 
 
@@ -116,6 +117,20 @@ class Cache:
             live = self._live(terminal_id)
             live.bill_open, live.last_seen = True, now or datetime.now()
             return True, current
+
+    def billing_phone(self, terminal_id, serial, now=None):
+        """The terminal on which a bill is open right now - on `terminal_id` itself or on another terminal
+        held by the phone `serial` - or None. Pairing, unpairing and retiring wait for that bill; a
+        phone silent for GONE_SECONDS (lost, switched off) does not hold them up."""
+        now = now or datetime.now()
+        with self._lock:
+            mine = [tid for tid, t in self.terminals.items() if serial and t.device_serial == serial and t.paired]
+            for tid in [terminal_id, *mine]:
+                live = self.live.get(tid)
+                if (tid in self.terminals and self.terminals[tid].paired and live and live.bill_open
+                        and live.last_seen and (now - live.last_seen).total_seconds() < GONE_SECONDS):
+                    return tid
+            return None
 
     def lock_here(self, terminal_id, reason):
         """Lock in this copy straight away, while the lock is being saved to Snowflake."""
