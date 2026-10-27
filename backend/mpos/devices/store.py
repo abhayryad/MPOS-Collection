@@ -107,6 +107,10 @@ class LimitReached(Exception):
     """The store already has its maximum number of active mPOS terminals."""
 
 
+class Conflict(Exception):
+    """The row changed (or went) since the screen loaded it; the message is safe to show."""
+
+
 # ---------------------------------------------------------------- reading
 
 def _global(row):
@@ -296,6 +300,188 @@ def retire_terminal(terminal_id, actor, reason=None, ip=None):
         raise ValueError(f"No active terminal {tid}")
     bump_change()
     record("RETIRED", "TERMINAL", actor=actor, target=tid, old="ACTIVE", new="RETIRED", reason=reason, ip=ip)
+
+
+# ---------------------------------------------------------------- switches and settings (portal screens)
+
+def _update_one(table, key_col, key, sets, params, *, actor, version, what, active_only=False):
+    """UPDATE one row; with `version` only if it still has the VERSION the screen saw. Raises Conflict
+    when no row was changed. Bumps CHANGE_SEQ so every running site reloads."""
+    sql = (f"UPDATE {table} SET {sets}, VERSION = VERSION + 1, UPDATED_AT = CURRENT_TIMESTAMP(), "
+           f"UPDATED_BY = ? WHERE {key_col} = ?")
+    params = [*params, actor, key]
+    if active_only:
+        sql += " AND STATUS = 'ACTIVE'"
+    if version is not None:
+        sql += " AND VERSION = ?"
+        params.append(int(version))
+    if _run(sql, params, fetch=False) != 1:
+        raise Conflict(f"{what} was changed by someone else since you loaded it - reload and try again")
+    bump_change()
+
+
+def set_global(on, reason, actor, version=None, ip=None):
+    """All mPOS on or off (HO). Off: phones with a bill open finish it, then stop."""
+    _update_one(GLOBAL, "ID", 1, "ENABLED = ?, REASON = ?", [bool(on), None if on else _cut(reason, 500)],
+                actor=actor, version=version, what="All mPOS")
+    record("GLOBAL_ON" if on else "GLOBAL_OFF", "GLOBAL", actor=actor, new="ON" if on else "OFF",
+           reason=reason, ip=ip)
+
+
+def set_stores(codes, on, reason, actor, version=None, ip=None):
+    """HO's switch for some stores (codes) or every store (codes None), in one statement. Stores that
+    never had mPOS have no row and nothing to switch. `version` guards a single store. Returns the
+    number of stores changed."""
+    sql = (f"UPDATE {STORES} SET HO_ENABLED = ?, HO_REASON = ?, VERSION = VERSION + 1, "
+           f"UPDATED_AT = CURRENT_TIMESTAMP(), UPDATED_BY = ?")
+    params = [bool(on), None if on else _cut(reason, 500), actor]
+    if codes is not None:
+        codes = sorted({c.strip().upper() for c in codes})
+        if not codes:
+            return 0
+        sql += f" WHERE STORE_CODE IN ({', '.join('?' * len(codes))})"
+        params += codes
+        if version is not None and len(codes) == 1:
+            sql += " AND VERSION = ?"
+            params.append(int(version))
+    n = _run(sql, params, fetch=False)
+    if version is not None and codes and len(codes) == 1 and n != 1:
+        raise Conflict(f"Store {codes[0]} was changed by someone else since you loaded it - reload and try again")
+    if n:
+        bump_change()
+    record("STORE_ON" if on else "STORE_OFF", "STORE", actor=actor,
+           target=codes[0] if codes and len(codes) == 1 else None, new="ON" if on else "OFF",
+           reason=reason if codes is None or len(codes) == 1 else f"{reason or ''} [{', '.join(codes)[:400]}]".strip(),
+           affected=n, ip=ip)
+    return n
+
+
+def set_terminal(terminal_id, on, actor, reason=None, version=None, ip=None):
+    """The store approver's switch for one terminal. Off: an open bill finishes first."""
+    _update_one(TERMINALS, "TERMINAL_ID", terminal_id, "STORE_ENABLED = ?", [bool(on)],
+                actor=actor, version=version, what=terminal_id, active_only=True)
+    record("TERMINAL_ON" if on else "TERMINAL_OFF", "TERMINAL", actor=actor, target=terminal_id,
+           new="ON" if on else "OFF", reason=reason, ip=ip)
+
+
+def set_veto(terminal_id, blocked, reason, actor, version=None, ip=None):
+    """HO's block on one terminal; the store cannot switch it back on while it holds."""
+    _update_one(TERMINALS, "TERMINAL_ID", terminal_id, "HO_VETO = ?, VETO_REASON = ?",
+                [bool(blocked), _cut(reason, 500) if blocked else None],
+                actor=actor, version=version, what=terminal_id, active_only=True)
+    record("VETO_ON" if blocked else "VETO_OFF", "TERMINAL", actor=actor, target=terminal_id,
+           new="BLOCKED" if blocked else "LIFTED", reason=reason, ip=ip)
+
+
+def set_lock(terminal_id, locked, reason, actor, version=None, ip=None):
+    """Immediate lock (lost or stolen phone: stops even mid-bill) or its removal, by HO."""
+    _update_one(TERMINALS, "TERMINAL_ID", terminal_id, "IMMEDIATE_LOCK = ?, LOCK_REASON = ?",
+                [bool(locked), _cut(reason, 500) if locked else None],
+                actor=actor, version=version, what=terminal_id, active_only=True)
+    record("LOCK_ON" if locked else "LOCK_OFF", "TERMINAL", actor=actor, target=terminal_id,
+           new="LOCKED" if locked else "UNLOCKED", reason=reason, ip=ip)
+
+
+def set_day(store_code, open_, actor, ip=None):
+    """Open or close the store's mPOS day - only for stores that use Open day (DAY_CONTROL)."""
+    code = store_code.strip().upper()
+    opened = ", DAY_OPENED_AT = CURRENT_TIMESTAMP(), DAY_OPENED_BY = ?" if open_ else ""
+    n = _run(f"UPDATE {STORES} SET DAY_OPEN = ?{opened}, VERSION = VERSION + 1, UPDATED_AT = CURRENT_TIMESTAMP(), "
+             f"UPDATED_BY = ? WHERE STORE_CODE = ? AND DAY_CONTROL",
+             [bool(open_), *([actor] if open_ else []), actor, code], fetch=False)
+    if n != 1:
+        raise Conflict(f"{code} does not use Open day")
+    bump_change()
+    record("DAY_OPEN" if open_ else "DAY_CLOSE", "STORE", actor=actor, target=code, ip=ip)
+
+
+STORE_SETTINGS = {  # field -> (column, history event)
+    "max_mpos": ("MAX_MPOS", "MAX_SET"),
+    "approver": ("APPROVER", "APPROVER_SET"),
+    "day_control": ("DAY_CONTROL", "DAY_CONTROL_SET"),
+    "day_close_time": ("DAY_CLOSE_TIME", "DAY_CLOSE_SET"),
+}
+
+
+def set_store_settings(store_code, changes, actor, version=None, ip=None):
+    """HO's settings for one store: {field: value} with fields from STORE_SETTINGS. Creates the store's
+    row first if it never had mPOS."""
+    code = store_code.strip().upper()
+    changes = {k: v for k, v in changes.items() if k in STORE_SETTINGS}
+    if not changes:
+        return
+    _run(f"MERGE INTO {STORES} s USING (SELECT ? AS STORE_CODE) n ON s.STORE_CODE = n.STORE_CODE "
+         f"WHEN NOT MATCHED THEN INSERT (STORE_CODE, MAX_MPOS, CREATED_BY) VALUES (n.STORE_CODE, ?, ?)",
+         [code, S.MAX_MPOS, actor], fetch=False)
+    _update_one(STORES, "STORE_CODE", code, ", ".join(f"{STORE_SETTINGS[k][0]} = ?" for k in changes),
+                list(changes.values()), actor=actor, version=version, what=f"Store {code}")
+    for k, v in changes.items():
+        record(STORE_SETTINGS[k][1], "STORE", actor=actor, target=code, new=v, ip=ip)
+
+
+def add_terminals(store_codes, count, actor, ip=None):
+    """`count` new terminals in each store, in one transaction - fast for every store at once. Each
+    takes its store's next number; a store stops at its MAX_MPOS. Returns (new terminal IDs, store
+    codes that hit their limit)."""
+    codes = sorted({c.strip().upper() for c in store_codes if c and c.strip()})
+    if not codes or count < 1:
+        return [], []
+    marks = ", ".join("?" * len(codes))
+    added, full, bumps = [], [], []
+    with _transaction() as cur:
+        cur.execute(f"MERGE INTO {STORES} s USING (SELECT column1 AS STORE_CODE FROM VALUES "
+                    f"{', '.join(['(?)'] * len(codes))}) n ON s.STORE_CODE = n.STORE_CODE WHEN NOT MATCHED THEN "
+                    f"INSERT (STORE_CODE, MAX_MPOS, CREATED_BY) VALUES (n.STORE_CODE, ?, ?)", [*codes, S.MAX_MPOS, actor])
+        cur.execute(f"SELECT s.STORE_CODE, s.NEXT_SEQ, s.MAX_MPOS, COUNT(t.TERMINAL_ID) AS ACTIVE FROM {STORES} s "
+                    f"LEFT JOIN {TERMINALS} t ON t.STORE_CODE = s.STORE_CODE AND t.STATUS = 'ACTIVE' "
+                    f"WHERE s.STORE_CODE IN ({marks}) GROUP BY s.STORE_CODE, s.NEXT_SEQ, s.MAX_MPOS "
+                    f"ORDER BY s.STORE_CODE", codes)
+        rows = []
+        for r in cur.fetchall():
+            seq, room = int(r["NEXT_SEQ"]), int(r["MAX_MPOS"]) - int(r["ACTIVE"])
+            n = max(0, min(count, room))
+            if n < count:
+                full.append(r["STORE_CODE"])
+            for k in range(n):
+                tid = S.terminal_id(r["STORE_CODE"], seq + k)
+                added.append(tid)
+                rows.append((tid, r["STORE_CODE"], seq + k, actor))
+            if n:
+                bumps.append((r["STORE_CODE"], seq, seq + n))
+        if rows:
+            cur.executemany(f"INSERT INTO {TERMINALS} (TERMINAL_ID, STORE_CODE, SEQ, CREATED_BY) VALUES (?, ?, ?, ?)",
+                            [list(r) for r in rows])
+            cur.execute(f"UPDATE {STORES} s SET NEXT_SEQ = n.NEW_SEQ, UPDATED_AT = CURRENT_TIMESTAMP(), UPDATED_BY = ? "
+                        f"FROM (SELECT column1 AS STORE_CODE, column2 AS OLD_SEQ, column3 AS NEW_SEQ FROM VALUES "
+                        f"{', '.join(['(?, ?, ?)'] * len(bumps))}) n "
+                        f"WHERE s.STORE_CODE = n.STORE_CODE AND s.NEXT_SEQ = n.OLD_SEQ",
+                        [actor, *(v for b in bumps for v in b)])
+            if cur.rowcount != len(bumps):  # another copy of the site added terminals at the same moment
+                raise sf.StoreUnavailable("Terminals were added elsewhere at the same moment - try again")
+    if added:
+        bump_change()
+        one = len(codes) == 1
+        record("TERMINAL_ADDED", "STORE" if one else "GLOBAL", actor=actor, target=codes[0] if one else None,
+               new=", ".join(added)[:200], reason=None if one else f"{count} per store, {len(codes)} stores",
+               affected=len(added), ip=ip)
+    return added, full
+
+
+def load_history(store_code=None, terminal_id=None, limit=200):
+    """Newest first. A store's history includes its terminals'; no filter = everything (HO)."""
+    sql, params = f"SELECT * FROM {HISTORY}", []
+    if terminal_id:
+        sql += " WHERE TARGET = ?"
+        params = [terminal_id.strip().upper()]
+    elif store_code:
+        code = store_code.strip().upper()
+        sql += " WHERE TARGET = ? OR STARTSWITH(TARGET, ?)"
+        params = [code, f"{code}_MPOS"]
+    sql += " ORDER BY EVENT_ID DESC LIMIT ?"
+    params.append(int(limit))
+    return [{"id": r["EVENT_ID"], "time": sf._ts(r["EVENT_TIME"]), "actor": r["ACTOR"], "level": r["LEVEL"],
+             "target": r["TARGET"], "event": r["EVENT"], "old": r["OLD_VALUE"], "new": r["NEW_VALUE"],
+             "reason": r["REASON"], "affected": r["AFFECTED_COUNT"]} for r in _run(sql, params)]
 
 
 # ---------------------------------------------------------------- phone check-ins

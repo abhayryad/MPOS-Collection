@@ -124,13 +124,22 @@ class Cache:
         phone silent for GONE_SECONDS (lost, switched off) does not hold them up."""
         now = now or datetime.now()
         with self._lock:
-            mine = [tid for tid, t in self.terminals.items() if serial and t.device_serial == serial and t.paired]
-            for tid in [terminal_id, *mine]:
-                live = self.live.get(tid)
-                if (tid in self.terminals and self.terminals[tid].paired and live and live.bill_open
-                        and live.last_seen and (now - live.last_seen).total_seconds() < GONE_SECONDS):
-                    return tid
-            return None
+            mine = [tid for tid, t in self.terminals.items() if t.device_serial == serial and t.paired] if serial else []
+            return next((tid for tid in [terminal_id, *mine] if self._billing(tid, now)), None)
+
+    def _billing(self, terminal_id, now):
+        t, live = self.terminals.get(terminal_id), self.live.get(terminal_id)
+        return bool(t and t.paired and live and live.bill_open and live.last_seen
+                    and (now - live.last_seen).total_seconds() < GONE_SECONDS)
+
+    def snapshot(self, now=None):
+        """(global, {code: Store}, [(Terminal, State, bill open now, Live)]) in one consistent copy, for
+        the portal screens. Retired terminals are left out."""
+        now = now or datetime.now()
+        with self._lock:
+            rows = [(t, self._state(tid), self._billing(tid, now), self._live(tid))
+                    for tid, t in self.terminals.items() if t.status == "ACTIVE"]
+            return self.glob, dict(self.stores), rows
 
     def lock_here(self, terminal_id, reason):
         """Lock in this copy straight away, while the lock is being saved to Snowflake."""

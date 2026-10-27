@@ -57,6 +57,9 @@ class ScriptedConnection:
                         self._rows, self.rowcount = rows, rowcount
                         break
 
+            def executemany(self, sql, rows):
+                self.execute(sql, rows)
+
             def fetchall(self):
                 return self._rows
 
