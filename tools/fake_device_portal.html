@@ -86,9 +86,10 @@
   .phonebox { padding: 16px; display: grid; gap: 14px; }
   .empty { color: var(--muted); text-align: center; padding: 30px 10px; }
   .phone { width: 200px; margin: 0 auto; border-radius: 30px; background: #111827; padding: 10px; box-shadow: 0 10px 25px rgba(0,0,0,.18); }
-  .screen { border-radius: 22px; height: 340px; padding: 18px 14px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; color: #fff; transition: background .3s; }
+  .screen { border-radius: 22px; min-height: 340px; padding: 18px 14px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; color: #fff; transition: background .3s; }
+  .screen > * { flex: none; max-width: 100%; }
   .screen .tid { font-size: 11px; opacity: .85; letter-spacing: .04em; }
-  .screen .icon { width: 64px; height: 64px; border-radius: 50%; background: rgba(255,255,255,.18); display: grid; place-items: center; margin-top: 26px; }
+  .screen .icon { width: 64px; height: 64px; border-radius: 50%; background: rgba(255,255,255,.18); display: grid; place-items: center; margin-top: 18px; }
   .screen .big { font-size: 17px; font-weight: 700; }
   .screen .msg { font-size: 12px; opacity: .92; }
   .screen .foot { margin-top: auto; font-size: 11px; padding: 6px 10px; border-radius: 8px; background: rgba(0,0,0,.18); }
@@ -334,7 +335,7 @@ function renderPhone() {
   const p = sel && data.phones[sel];
   if (!p) return;
   const k = kind(p), L = LOOK[k];
-  const msg = k === "UNPAIRED" ? `Enter this code on the new phone:</div><div class="code">${esc(p.pair_code || "------")}</div><div class="msg">${p.autopair ? "A simulated phone is pairing now&hellip;" : "Waiting - pair with phone_sim.py pair"}`
+  const msg = k === "UNPAIRED" ? `Scan the QR or enter this code on the new phone</div><div class="code">${esc(p.pair_code || "------")}</div><div class="msg">${p.autopair ? "Pairing a phone&hellip;" : "Waiting for a phone to pair"}`
             : k === "ON" ? "New bills can be started" : k === "DRAINING" ? `${esc(p.message)}. Complete the open bill - no new bill after it.`
             : k === "OFF" ? esc(p.message) : "This phone has not checked in yet";
   const row = (title, sub, level, on, danger) => `<div class="r"><div><b>${title}</b><span>${sub}</span></div>
@@ -345,7 +346,7 @@ function renderPhone() {
       <div class="icon">${ICON[k]}</div>
       <div class="big">${L.big}</div>
       <div class="msg">${msg}</div>
-      <div class="foot">${k === "UNPAIRED" ? "Code valid 15 minutes, one use" : p.bill ? "Bill open" : "No bill open"}${p.seen ? ` · checked in ${p.seen}` : ""}</div>
+      <div class="foot">${k === "UNPAIRED" ? "Valid 15 min &middot; one use" : p.bill ? "Bill open" : "No bill open"}${p.seen ? ` · checked in ${p.seen}` : ""}</div>
     </div></div>
     <div class="ctl">
       ${row("Store switch", "The store approver's on/off for this phone", "terminal", p.store_switch)}
