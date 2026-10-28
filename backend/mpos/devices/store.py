@@ -329,17 +329,26 @@ def set_global(on, reason, actor, version=None, ip=None):
            reason=reason, ip=ip)
 
 
+def _store_rows(cur_or_run, codes, actor):
+    """Make sure each store has its MPOS_STORES row (a store gets one with its first terminal, or here),
+    so a switch or setting holds even before the store has any mPOS."""
+    cur_or_run(f"MERGE INTO {STORES} s USING (SELECT column1 AS STORE_CODE FROM VALUES "
+               f"{', '.join(['(?)'] * len(codes))}) n ON s.STORE_CODE = n.STORE_CODE WHEN NOT MATCHED THEN "
+               f"INSERT (STORE_CODE, MAX_MPOS, CREATED_BY) VALUES (n.STORE_CODE, ?, ?)", [*codes, S.MAX_MPOS, actor])
+
+
 def set_stores(codes, on, reason, actor, version=None, ip=None):
-    """HO's switch for some stores (codes) or every store (codes None), in one statement. Stores that
-    never had mPOS have no row and nothing to switch. `version` guards a single store. Returns the
-    number of stores changed."""
+    """HO's switch for some stores (codes) or every store with mPOS (codes None), in one statement.
+    Listed stores that never had mPOS get their row first, so the switch holds for terminals added
+    later. `version` guards a single store. Returns the number of stores changed."""
     sql = (f"UPDATE {STORES} SET HO_ENABLED = ?, HO_REASON = ?, VERSION = VERSION + 1, "
            f"UPDATED_AT = CURRENT_TIMESTAMP(), UPDATED_BY = ?")
     params = [bool(on), None if on else _cut(reason, 500), actor]
     if codes is not None:
-        codes = sorted({c.strip().upper() for c in codes})
+        codes = sorted({c.strip().upper() for c in codes if c and c.strip()})
         if not codes:
             return 0
+        _store_rows(lambda q, p: _run(q, p, fetch=False), codes, actor)  # a new row has VERSION 1
         sql += f" WHERE STORE_CODE IN ({', '.join('?' * len(codes))})"
         params += codes
         if version is not None and len(codes) == 1:
@@ -413,9 +422,7 @@ def set_store_settings(store_code, changes, actor, version=None, ip=None):
         raise ValueError(f"A store can have at most {S.MAX_MPOS} mPOS terminals")
     if not changes:
         return
-    _run(f"MERGE INTO {STORES} s USING (SELECT ? AS STORE_CODE) n ON s.STORE_CODE = n.STORE_CODE "
-         f"WHEN NOT MATCHED THEN INSERT (STORE_CODE, MAX_MPOS, CREATED_BY) VALUES (n.STORE_CODE, ?, ?)",
-         [code, S.MAX_MPOS, actor], fetch=False)
+    _store_rows(lambda q, p: _run(q, p, fetch=False), [code], actor)
     _update_one(STORES, "STORE_CODE", code, ", ".join(f"{STORE_SETTINGS[k][0]} = ?" for k in changes),
                 list(changes.values()), actor=actor, version=version, what=f"Store {code}")
     for k, v in changes.items():
@@ -432,9 +439,7 @@ def add_terminals(store_codes, count, actor, ip=None):
     marks = ", ".join("?" * len(codes))
     added, full, bumps = [], [], []
     with _transaction() as cur:
-        cur.execute(f"MERGE INTO {STORES} s USING (SELECT column1 AS STORE_CODE FROM VALUES "
-                    f"{', '.join(['(?)'] * len(codes))}) n ON s.STORE_CODE = n.STORE_CODE WHEN NOT MATCHED THEN "
-                    f"INSERT (STORE_CODE, MAX_MPOS, CREATED_BY) VALUES (n.STORE_CODE, ?, ?)", [*codes, S.MAX_MPOS, actor])
+        _store_rows(cur.execute, codes, actor)
         cur.execute(f"SELECT s.STORE_CODE, s.NEXT_SEQ, s.MAX_MPOS, COUNT(t.TERMINAL_ID) AS ACTIVE FROM {STORES} s "
                     f"LEFT JOIN {TERMINALS} t ON t.STORE_CODE = s.STORE_CODE AND t.STATUS = 'ACTIVE' "
                     f"WHERE s.STORE_CODE IN ({marks}) GROUP BY s.STORE_CODE, s.NEXT_SEQ, s.MAX_MPOS "

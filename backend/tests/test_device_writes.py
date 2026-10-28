@@ -53,6 +53,29 @@ class WritesTest(unittest.TestCase):
         self.assertEqual(store.set_stores(None, True, "", "ho1"), 432)
         self.assertNotIn("WHERE", self.update("MPOS_STORES")[0])  # every store
 
+    def test_store_without_mpos_gets_its_row_then_switches(self):
+        self.use()  # the store never had mPOS: the MERGE makes its row (VERSION 1), the UPDATE switches it
+        self.assertEqual(store.set_stores(["kn01"], False, "Closed for Diwali", "ho1", version=1), 1)
+        sql = [s for s, _ in self.conn.statements if "MPOS_STORES" in s]
+        self.assertTrue(sql[0].startswith("MERGE INTO V2RETAIL.BRONZE.MPOS_STORES"))
+        self.assertIn("FROM VALUES (?)) n", sql[0])
+        self.assertEqual(next(p for s, p in self.conn.statements if s.startswith("MERGE INTO V2RETAIL.BRONZE.MPOS_STORES")),
+                         ["KN01", 5, "ho1"])
+        self.assertTrue(sql[1].startswith("UPDATE"))
+        self.assertTrue(self.bumped())
+
+    def test_several_stores_all_get_rows(self):
+        self.use(("UPDATE V2RETAIL.BRONZE.MPOS_STORES", [], 3))
+        self.assertEqual(store.set_stores(["HD22", "KN01", "DH24"], False, "Audit", "ho1"), 3)
+        merge = next((s, p) for s, p in self.conn.statements if s.startswith("MERGE INTO V2RETAIL.BRONZE.MPOS_STORES"))
+        self.assertIn("FROM VALUES (?), (?), (?)) n", merge[0])
+        self.assertEqual(merge[1], ["DH24", "HD22", "KN01", 5, "ho1"])
+
+    def test_every_store_does_not_create_rows(self):
+        self.use(("UPDATE V2RETAIL.BRONZE.MPOS_STORES", [], 2))
+        store.set_stores(None, False, "Audit", "ho1")
+        self.assertFalse(any(s.startswith("MERGE INTO V2RETAIL.BRONZE.MPOS_STORES") for s, _ in self.conn.statements))
+
     def test_one_store_with_version(self):
         self.use(("UPDATE V2RETAIL.BRONZE.MPOS_STORES", [], 0))
         with self.assertRaises(store.Conflict):
